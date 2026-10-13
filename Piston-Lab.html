@@ -1,0 +1,2300 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pistón Lab · simulación de un cilindro</title>
+<style>
+:root{--bg:#0e1012;--panel:#16191c;--line:#2c3237;--text:#e6e8e9;--muted:#8d969c;--accent:#ff7a1a;--on:#3fb4ff;--warn:#ff5a4a}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+canvas{display:block}
+button,select,input{font:inherit;color:inherit}
+#bar{position:sticky;top:0;z-index:3;display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:8px 16px;background:var(--bg);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:baseline;gap:8px}
+.brand strong{font-size:16px}
+.brand span{color:var(--muted);font-size:13px}
+.transport{display:flex;gap:6px;align-items:center}
+.btn,.sel{padding:6px 10px;background:var(--panel);border:1px solid var(--line);border-radius:4px;cursor:pointer}
+.btn:hover,.sel:hover{border-color:var(--muted)}
+.btn.primary{border-color:var(--accent)}
+.angle{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--muted)}
+#presets{display:flex;gap:6px;overflow-x:auto;padding:8px 16px;border-bottom:1px solid var(--line);scrollbar-width:thin}
+.preset{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:5px 12px;border:1px solid var(--line);border-radius:4px;background:var(--panel);cursor:pointer;text-align:left}
+.preset:hover{border-color:var(--muted)}
+.preset[aria-selected=true]{border-color:var(--accent);box-shadow:inset 0 -2px 0 var(--accent)}
+.preset-name{font-weight:600;white-space:nowrap}
+.preset-meta{font-size:12px;color:var(--muted);white-space:nowrap}
+main{max-width:1440px;margin:0 auto;padding:12px 16px 48px}
+.stage{display:grid;grid-template-columns:minmax(300px,760px) minmax(320px,1fr);gap:16px;align-items:start}
+@media (max-width:980px){.stage{grid-template-columns:1fr}}
+.view{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px}
+#view-tools{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin-bottom:8px;font-size:13px}
+.muted{color:var(--muted)}
+.chk{display:flex;align-items:center;gap:4px;cursor:pointer}
+.cyl-wrap{display:flex;justify-content:center}
+#legend{margin-top:8px;font-size:12px;color:var(--muted);display:grid;gap:4px}
+.legend-row{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+.legend-row strong{color:var(--text);font-weight:600}
+.sw{display:inline-flex;align-items:center;gap:4px}
+.sw i{display:inline-block;width:10px;height:10px;border-radius:2px}
+.bar-scale{display:inline-flex;align-items:center;gap:6px}
+.bar-scale i{display:inline-block;width:120px;height:10px;border-radius:2px}
+.side{display:grid;gap:12px;min-width:0}
+.plots{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px}
+.plot{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px;min-width:0}
+.tables{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.card h2{margin:0 0 8px;font-size:15px}
+dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:13px}
+dt{color:var(--muted)}
+dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+dd.warn{color:var(--warn)}
+#controls{margin-top:20px}
+#controls>h1{font-size:20px;margin:0 0 12px}
+#controls-groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:12px}
+.group{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px 16px}
+.group h2{margin:0 0 4px;font-size:15px}
+.hint{margin:0 0 10px;color:var(--muted);font-size:13px}
+.row{display:grid;grid-template-columns:minmax(110px,40%) 1fr auto;align-items:center;gap:10px;margin:10px 0}
+.row output{min-width:72px;text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+.row input[type=range]{width:100%;accent-color:var(--accent)}
+.row select{width:100%;min-width:0;box-sizing:border-box;padding:6px 8px;background:var(--bg);border:1px solid var(--line);border-radius:4px}
+.about{margin-top:20px;color:var(--muted);font-size:13px;max-width:900px}
+.about h2{color:var(--text);font-size:15px}
+.about ul{padding-left:18px}
+</style>
+</head>
+<body>
+<header id="bar" aria-label="Simulación"></header>
+<nav id="presets" role="tablist" aria-label="Casos guardados"></nav>
+<main>
+  <div class="stage">
+    <section class="view" aria-label="Corte del cilindro">
+      <div id="view-tools"></div>
+      <div class="cyl-wrap"><canvas id="cyl" aria-label="Corte axisimétrico del cilindro"></canvas></div>
+      <div id="legend"></div>
+    </section>
+    <div class="side">
+      <div class="plots">
+        <div class="plot"><canvas id="plot-p" data-h="170"></canvas></div>
+        <div class="plot"><canvas id="plot-pv" data-h="170"></canvas></div>
+        <div class="plot"><canvas id="plot-hrr" data-h="170"></canvas></div>
+        <div class="plot"><canvas id="plot-fuel" data-h="170"></canvas></div>
+      </div>
+      <div class="tables">
+        <section class="card"><h2>Ahora</h2><dl id="live"></dl></section>
+        <section class="card"><h2>Último ciclo</h2><dl id="cycle"></dl></section>
+      </div>
+    </div>
+  </div>
+  <section id="controls" aria-label="Controles">
+    <h1>Controles</h1>
+    <div id="controls-groups"></div>
+  </section>
+  <section class="about">
+    <h2>Qué simula</h2>
+    <ul>
+      <li>Un corte 2D axisimétrico del cilindro: la mitad izquierda muestra la composición y la derecha el campo elegido. La malla se estira con el pistón.</li>
+      <li>Flujo de baja velocidad: presión uniforme en el tiempo más un campo de velocidades que mueve el gas entre celdas. Así aparecen el squish, el chorro de admisión, el swirl y la expansión de la llama.</li>
+      <li>Turbulencia con un modelo k, frente de llama turbulento desde la bujía, apagado en huelgos finos y oxidación posterior de bolsones ricos.</li>
+      <li>Gotas de combustible con arrastre, calentamiento y evaporación, y película en las paredes que hierve o se evapora.</li>
+      <li>Golpe (knock): integral de Livengood-Wu con el retardo de Douaud-Eyzat en la mezcla sin quemar.</li>
+    </ul>
+    <h2>Qué deja afuera</h2>
+    <ul>
+      <li>Todo lo que no es simétrico alrededor del eje: el tumble y las válvulas o la bujía descentradas. Las válvulas son anillos.</li>
+      <li>Las ondas de presión: el golpe se detecta y se estima su frecuencia, pero el pistoneo acústico no se simula.</li>
+      <li>Química detallada, disociación, emisiones y hollín. El calor específico de cada gas es constante.</li>
+    </ul>
+    <p>Teclas: espacio pausa o sigue, flecha derecha avanza 1°.</p>
+  </section>
+</main>
+<script>
+/* BEGIN Piston-Sim-Physics.js */
+/* Piston-Sim-Physics.js
+ * Single cylinder, four stroke, spark ignition simulator.
+ *
+ * The chamber is an axisymmetric (r, y) section: y points down from the deck
+ * plane, r out from the bore axis. The mesh has three blocks of rows:
+ *   dome rows   recess in the head (fixed),
+ *   gap rows    between deck plane and piston crown (stretch with the piston),
+ *   bowl rows   recess in the piston (move with the piston).
+ * Cells outside the recess profile are masked, so the chamber walls are steps.
+ *
+ * Flow model: low Mach number. Pressure has a uniform thermodynamic part p0(t)
+ * plus a hydrodynamic part that only steers the velocity. Each step:
+ *   1 sources: valves, injection, droplets, wall film, spark, flame, knock
+ *   2 every cell is compressed isentropically to the new p0, chosen so the
+ *     gas fills the new chamber volume exactly
+ *   3 projection: a Poisson solve makes the face fluxes move each cell's
+ *     surplus volume to its neighbours (this is what drives squish, the
+ *     intake jet and the flame expansion)
+ *   4 conservative upwind transport (MUSCL, minmod) of every quantity
+ *   5 implicit diffusion along lines (turbulent viscosity, wall friction,
+ *     wall heat transfer), then the k equation
+ * Combustion: a front tracked by the burned fraction c that advances into
+ * fresh gas at the turbulent flame speed (Godunov upwind |grad c|), burning
+ * the reactants it overruns. Rich leftovers oxidise later by mixing.
+ * Fuel liquid: Lagrangian droplet parcels with drag, heating, evaporation and
+ * a wall film. Knock: Livengood-Wu integral with the Douaud-Eyzat delay.
+ */
+'use strict';
+
+const PS_RU = 8314.462618;
+const PS_ATM = 101325;
+const PS_DEG = Math.PI / 180;
+
+// Constant cp per species, effective values over the range each one lives in.
+const PS_AIR = { R: 287.05, cp: 1100 };
+const PS_PROD = { R: 290.5, cp: 1400 };
+
+// gulder: [W m/s, eta, xi] for SL0 = W phi^eta exp(-xi (phi - 1.075)^2) at 298 K and 1 atm.
+const PS_FUELS = {
+  gasolina: {
+    label: 'Gasolina', LHV: 43.4e6, AFR: 14.7, M: 100, cpV: 1700, gulder: [0.38, -0.326, 4.48], octane: 95,
+    phiMin: 0.5, phiMax: 1.8, liquid: true, rhoL: 720, cL: 2200, Lb: 3.3e5, Tb: 370, Tc: 560,
+  },
+  etanol: {
+    label: 'Etanol', LHV: 26.8e6, AFR: 9.0, M: 46.07, cpV: 1900, gulder: [0.465, 0.25, 6.34], octane: 108,
+    phiMin: 0.45, phiMax: 2.2, liquid: true, rhoL: 789, cL: 2440, Lb: 8.4e5, Tb: 351, Tc: 514,
+  },
+  metano: {
+    label: 'Metano (GNC)', LHV: 50.0e6, AFR: 17.2, M: 16.04, cpV: 2600, gulder: [0.422, 0.15, 5.18], octane: 120,
+    phiMin: 0.55, phiMax: 1.6, liquid: false,
+  },
+};
+
+const PS_DEFAULTS = {
+  bore: 0.086, stroke: 0.086, rod: 0.143, cr: 10.5,
+  chamber: 'cupula',            // 'cupula' (head recess), 'bowl' (piston recess), 'plana'
+  squishClear: 0.0011, squishFrac: 0.4,
+  rpm: 2000, pIntake: 0.95e5, tIntake: 310, pExhaust: 1.05e5,
+  lambda: 1.0, fuel: 'gasolina', octane: null, spark: 18,
+  injection: 'puerto',          // 'puerto' or 'directa'
+  pfiVapor: 0.8, pfiDrop: 50e-6,
+  diSoi: 300, diPressure: 150e5, diDrop: 18e-6, diCone: 70,
+  ivo: 12, ivc: 48, evo: 50, evc: 12,
+  ivLift: 0.0095, evLift: 0.009, ivDiam: 0.34, evDiam: 0.29,
+  swirl: 0.35, jetAngle: 35,
+  tHead: 480, tLiner: 420, tPiston: 540, heatTransfer: 1.0,
+  flameFactor: 1.0,
+  resolution: 'normal',
+};
+
+const PS_RESOLUTIONS = {
+  rapida: { nr: 14, ng: 6, nrec: 6 },
+  normal: { nr: 20, ng: 8, nrec: 8 },
+  fina: { nr: 28, ng: 10, nrec: 11 },
+};
+
+// ---------------------------------------------------------------- geometry
+
+function psBuildGeometry(p) {
+  const res = PS_RESOLUTIONS[p.resolution] || PS_RESOLUTIONS.normal;
+  const R = p.bore / 2, Ac = Math.PI * R * R;
+  const Vd = Ac * p.stroke, Vc = Vd / (p.cr - 1);
+  let type = p.chamber;
+  const nr = res.nr, dr = R / nr;
+  const Az = new Float64Array(nr), rc = new Float64Array(nr), rw = new Float64Array(nr + 1);
+  for (let i = 0; i <= nr; i++) rw[i] = i * dr;
+  for (let i = 0; i < nr; i++) {
+    Az[i] = Math.PI * (rw[i + 1] * rw[i + 1] - rw[i] * rw[i]);
+    rc[i] = (2 / 3) * (rw[i + 1] ** 3 - rw[i] ** 3) / (rw[i + 1] ** 2 - rw[i] ** 2);
+  }
+  let hTdc = Vc / Ac, rRec = 0, nRec = 0, dzRec = 0;
+  const recN = new Int32Array(nr);
+  if (type !== 'plana') {
+    rRec = R * Math.sqrt(Math.min(0.95, Math.max(0.05, 1 - p.squishFrac)));
+    hTdc = Math.min(Math.max(p.squishClear, 0.0003), 0.85 * Vc / Ac);
+    nRec = res.nrec;
+    let sumA = 0;
+    for (let i = 0; i < nr; i++) {
+      const s = rc[i] < rRec ? Math.sqrt(1 - (rc[i] / rRec) ** 2) : 0;
+      recN[i] = Math.min(nRec, Math.round(s * nRec + 0.25));
+      sumA += Az[i] * recN[i];
+    }
+    if (sumA <= 0) { type = 'plana'; hTdc = Vc / Ac; nRec = 0; recN.fill(0); }
+    else dzRec = (Vc - Ac * hTdc) / sumA;
+  }
+  const nd = type === 'cupula' ? nRec : 0, nb = type === 'bowl' ? nRec : 0, ng = res.ng;
+  const NZ = nd + ng + nb, N = nr * NZ;
+  const rowType = new Int8Array(NZ);   // 0 dome, 1 gap, 2 bowl
+  for (let j = 0; j < NZ; j++) rowType[j] = j < nd ? 0 : j < nd + ng ? 1 : 2;
+  const act = new Uint8Array(N);
+  for (let i = 0; i < nr; i++) for (let j = 0; j < NZ; j++) {
+    let a = 1;
+    if (rowType[j] === 0) a = recN[i] > (nd - 1 - j) ? 1 : 0;
+    else if (rowType[j] === 2) a = recN[i] > (j - nd - ng) ? 1 : 0;
+    act[i * NZ + j] = a;
+  }
+  // Recess depth per column, used to draw the chamber walls.
+  const recDepth = new Float64Array(nr);
+  for (let i = 0; i < nr; i++) recDepth[i] = recN[i] * dzRec;
+  const valveBand = (c0, c1) => {
+    const cells = [];
+    for (let i = 0; i < nr; i++) if (rc[i] >= c0 * R && rc[i] <= c1 * R) cells.push(i);
+    if (!cells.length) cells.push(Math.min(nr - 1, Math.round(0.5 * (c0 + c1) * nr)));
+    return cells;
+  };
+  return {
+    type, R, B: p.bore, Ac, Vd, Vc, hTdc, rRec, nRec, dzRec, recN, recDepth,
+    nr, dr, rw, rc, Az, nd, ng, nb, NZ, N, rowType, act,
+    exCols: valveBand(0.16, 0.40), inCols: valveBand(0.46, 0.72),
+    exR: 0.28 * R, inR: 0.59 * R,
+  };
+}
+
+// Piston distance from TDC and its speed (m, m/s); ca in degrees.
+function psPiston(p, ca, omega) {
+  const a = p.stroke / 2, l = p.rod, th = ca * PS_DEG;
+  const s = Math.sin(th), c = Math.cos(th), root = Math.sqrt(l * l - a * a * s * s);
+  const x = a + l - (a * c + root);
+  const v = omega * a * s * (1 + a * c / root);
+  return { x, v };
+}
+
+// ---------------------------------------------------------------- correlations
+
+function psOrifice(Cd, A, p0, T0, R0, g, pd) {
+  if (A <= 0 || p0 <= 0) return 0;
+  const pr = Math.min(1, Math.max(pd / p0, 0));
+  const crit = Math.pow(2 / (g + 1), g / (g - 1));
+  let psi;
+  if (pr > crit) psi = Math.sqrt(Math.max(0, 2 * g / (g - 1) * (Math.pow(pr, 2 / g) - Math.pow(pr, (g + 1) / g))));
+  else psi = Math.sqrt(g) * Math.pow(2 / (g + 1), (g + 1) / (2 * (g - 1)));
+  return Cd * A * p0 / Math.sqrt(R0 * T0) * psi;
+}
+
+function psLaminarSpeed(fuel, phi, Tu, p, xr) {
+  if (!(phi > fuel.phiMin && phi < fuel.phiMax)) return 0;
+  const [W, eta, xi] = fuel.gulder;
+  const s0 = W * Math.pow(phi, eta) * Math.exp(-xi * (phi - 1.075) ** 2);
+  const al = 2.18 - 0.8 * (phi - 1), be = -0.16 + 0.22 * (phi - 1);
+  const dil = Math.max(0, 1 - 2.06 * Math.pow(Math.max(xr, 0), 0.77));
+  return s0 * Math.pow(Tu / 298, al) * Math.pow(Math.max(p, 1e3) / PS_ATM, be) * dil;
+}
+
+// Douaud-Eyzat ignition delay (s).
+function psIgnitionDelay(octane, p, T) {
+  return 17.68e-3 * Math.pow(octane / 100, 3.402) * Math.pow(p / PS_ATM, -1.7) * Math.exp(3800 / T);
+}
+
+const psViscosity = T => 1.8e-5 * Math.pow(T / 300, 0.7);
+const psConductivity = T => 0.026 * Math.pow(T / 300, 0.8);
+
+// First circumferential acoustic mode of the bore (Draper), Hz.
+function psKnockFrequency(bore, T, gamma, R) {
+  return 1.841 * Math.sqrt(gamma * R * T) / (Math.PI * bore);
+}
+
+// Heywood's squish velocity estimate for a recess of volume Vrec and diameter Drec.
+function psSquishEstimate(bore, Drec, Vrec, z, pistonSpeed) {
+  const Ac = Math.PI * bore * bore / 4;
+  return (Drec / (4 * z)) * ((bore / Drec) ** 2 - 1) * Vrec / (Ac * z + Vrec) * pistonSpeed;
+}
+
+// ---------------------------------------------------------------- linear algebra
+
+// In place Cholesky of a symmetric banded matrix stored by rows: a[i*W + d] = A(i, i - d).
+function psBandCholesky(a, n, bw) {
+  const W = bw + 1;
+  for (let j = 0; j < n; j++) {
+    const jb = j * W;
+    let s = a[jb];
+    for (let d = 1; d <= bw && d <= j; d++) { const l = a[jb + d]; s -= l * l; }
+    const piv = Math.sqrt(Math.max(s, 1e-300));
+    a[jb] = piv;
+    const iMax = Math.min(n - 1, j + bw);
+    for (let i = j + 1; i <= iMax; i++) {
+      const ib = i * W, dij = i - j;
+      let t = a[ib + dij];
+      if (t === 0) {
+        // Only the fill-in can be non zero; still need the full update.
+      }
+      const kMin = Math.max(0, i - bw);
+      for (let k = kMin; k < j; k++) {
+        const aik = a[ib + (i - k)];
+        if (aik !== 0) t -= aik * a[jb + (j - k)];
+      }
+      a[ib + dij] = t / piv;
+    }
+  }
+}
+
+function psBandSolve(a, n, bw, b) {
+  const W = bw + 1;
+  for (let i = 0; i < n; i++) {
+    let s = b[i];
+    const ib = i * W;
+    for (let d = 1; d <= bw && d <= i; d++) s -= a[ib + d] * b[i - d];
+    b[i] = s / a[ib];
+  }
+  for (let i = n - 1; i >= 0; i--) {
+    let s = b[i];
+    for (let d = 1; d <= bw && i + d < n; d++) s -= a[(i + d) * W + d] * b[i + d];
+    b[i] = s / a[i * W];
+  }
+}
+
+// Thomas algorithm. lo[k] couples k to k-1, up[k] couples k to k+1.
+function psTridiag(n, lo, di, up, rhs, x, work) {
+  let b = di[0];
+  x[0] = rhs[0] / b;
+  for (let k = 1; k < n; k++) {
+    work[k] = up[k - 1] / b;
+    b = di[k] - lo[k] * work[k];
+    x[k] = (rhs[k] - lo[k] * x[k - 1]) / b;
+  }
+  for (let k = n - 2; k >= 0; k--) x[k] -= work[k + 1] * x[k + 1];
+}
+
+// ---------------------------------------------------------------- simulator
+
+const PS_FIELDS = ['m', 'mF', 'mP', 'E', 'mu', 'mw', 'mL', 'mk', 'mc', 'mxr', 'mik', 'mphi'];
+
+class PSCylinder {
+  constructor(params) {
+    this.p = Object.assign({}, PS_DEFAULTS, params || {});
+    this.reset();
+  }
+
+  setParam(key, value) {
+    this.p[key] = value;
+    if (key === 'rpm') this.omega = value * 2 * Math.PI / 60;
+  }
+
+  // Live values for the readouts.
+  diagnostics() {
+    const g = this.g, fuel = this.fuel;
+    let M = 0, Tm = 0, kk = 0, Lm = 0, I = 0, mF = 0, mP = 0, mb = 0, Tb = 0;
+    for (let c = 0; c < g.N; c++) {
+      if (!g.act[c]) continue;
+      const m = this.m[c], r = g.rc[(c / g.NZ) | 0];
+      M += m; Tm += m * this.T[c]; kk += m * this.k[c]; Lm += this.mL[c]; I += m * r * r;
+      mF += this.mF[c]; mP += this.mP[c];
+      if (this.c[c] > 0.5) { mb += m; Tb += m * this.T[c]; }
+    }
+    const air = M - mF - mP;
+    const liquid = this.liquidTotal || 0, film = this.filmTotal || 0;
+    const fuelAll = mF + liquid + film;
+    return {
+      p: this.p0, V: this.Vtot, M, T: Tm / M, Tu: this.Tu || Tm / M, Tb: mb > 0 ? Tb / mb : null,
+      u: Math.sqrt(2 / 3 * kk / M), swirl: I > 0 ? Lm / (I * this.omega) : 0,
+      vapor: mF, liquid, film, air, residual: mP / M,
+      lambda: fuelAll > 0 ? air / (fuelAll * fuel.AFR) : Infinity, mfb: this.mfb || 0, usq: this.usq || 0,
+      parcels: this.parcels.length, liftIn: this.liftIn || 0, liftEx: this.liftEx || 0, dt: this.dt,
+    };
+  }
+
+  reset() {
+    const p = this.p;
+    this.fuel = PS_FUELS[p.fuel] || PS_FUELS.gasolina;
+    p.octane = p.octane || this.fuel.octane;
+    const g = this.g = psBuildGeometry(p);
+    const N = g.N, NZ = g.NZ;
+    const F = () => new Float64Array(N);
+    for (const f of PS_FIELDS) this[f] = F();
+    this.u = F(); this.w = F(); this.v = F(); this.k = F(); this.c = F();
+    this.T = F(); this.R = F(); this.cp = F(); this.rho = F();
+    this.V = F(); this.Vt = F(); this.S = F();
+    this.Fe = F(); this.Fd = F();            // volume flux through east and lower faces (m3/s)
+    this.phi = F(); this.q = F(); this.flame = F(); this.film = F(); this.filmWall = new Int8Array(N);
+    this.Hcol = new Float64Array(g.nr);
+    this.dz = new Float64Array(NZ); this.yTop = new Float64Array(NZ + 1); this.gv = new Float64Array(NZ + 1);
+    this.band = new Float64Array(N * (NZ + 1));
+    const L = Math.max(g.nr, NZ) + 2;
+    this.tri = { lo: new Float64Array(L), di: new Float64Array(L), up: new Float64Array(L), rhs: new Float64Array(L), x: new Float64Array(L), work: new Float64Array(L), idx: new Int32Array(L) };
+    this.old = {}; for (const f of PS_FIELDS) this.old[f] = F();
+    this.parcels = [];
+    this.parcelMass = 0;
+    this.injAcc = 0;
+
+    this.omega = p.rpm * 2 * Math.PI / 60;
+    this.ca = 540 + p.ivc;                   // start at intake valve closing
+    this.t = 0;
+    this.dt = 1e-6;
+    this.geometryAt(this.ca);
+
+    // Fresh charge with some residual gas.
+    const fuel = this.fuel, xr = 0.06;
+    const f = 1 / (p.lambda * fuel.AFR);
+    const YP = xr, YF = (1 - xr) * f / (1 + f), YA = 1 - YP - YF;
+    const T0 = p.tIntake + 25;
+    const R0 = YA * PS_AIR.R + YP * PS_PROD.R + YF * PS_RU / fuel.M;
+    const cp0 = YA * PS_AIR.cp + YP * PS_PROD.cp + YF * fuel.cpV;
+    this.p0 = p.pIntake;
+    const Sp = 2 * p.stroke * p.rpm / 60, k0 = 1.5 * (0.45 * Sp) ** 2;
+    for (let c = 0; c < N; c++) {
+      if (!g.act[c]) continue;
+      const m = this.p0 * this.V[c] / (R0 * T0);
+      this.m[c] = m; this.mF[c] = m * YF; this.mP[c] = m * YP; this.E[c] = m * cp0 * T0;
+      this.mk[c] = m * k0;
+      const i = (c / NZ) | 0;
+      // Weak solid body swirl left from the intake.
+      this.mL[c] = m * g.rc[i] * g.rc[i] * this.omega * 0.6 * p.swirl;
+    }
+    this.derive();
+
+    this.exhaustRes = { YF: 0.0, YP: 1.0, T: 900 };
+    this.intakeBuf = { m: 0, mF: 0, mP: 0, E: 0 };
+    this.lastTrappedAir = this.airMass();
+    this.sparkDone = false; this.ignited = false; this.misfire = false;
+    this.knock = null;
+    this.stats = this.newCycleStats();
+    this.prevCycle = null;
+    this.history = [];
+    this.cycleCount = 0;
+    this.trace = this.newTrace();
+  }
+
+  newTrace() { return { ca: [], p: [], V: [], hrr: [], mfb: [], T: [], u: [], usq: [], vap: [], liq: [], film: [], burned: [] }; }
+
+  newCycleStats() {
+    return {
+      work: 0, workGross: 0, qComb: 0, qWall: 0, fuelIn: 0, fuelBurned: 0, airTrapped: 0, massTrapped: 0, residual: 0,
+      lambdaTrapped: 0, pMax: 0, caPMax: 0, uSpark: 0, sqMax: 0, mfb10: null, mfb50: null, mfb90: null, knockCa: null,
+      knockFrac: 0, knockFreq: 0, hcEvo: 0, filmMax: 0, liquidMax: 0, misfire: false, ignitionCa: null,
+    };
+  }
+
+  // Row heights, positions and face speeds at crank angle ca.
+  geometryAt(ca) {
+    const g = this.g, NZ = g.NZ, kin = psPiston(this.p, ca, this.omega);
+    const h = g.hTdc + kin.x, vp = kin.v;
+    this.h = h; this.vp = vp;
+    const dz = this.dz, yTop = this.yTop, gv = this.gv;
+    for (let j = 0; j < NZ; j++) {
+      const t = g.rowType[j];
+      if (t === 0) { dz[j] = g.dzRec; yTop[j] = -(g.nd - j) * g.dzRec; gv[j] = 0; }
+      else if (t === 1) { const m = j - g.nd; dz[j] = h / g.ng; yTop[j] = m * h / g.ng; gv[j] = vp * m / g.ng; }
+      else { const m = j - g.nd - g.ng; dz[j] = g.dzRec; yTop[j] = h + m * g.dzRec; gv[j] = vp; }
+    }
+    yTop[NZ] = yTop[NZ - 1] + dz[NZ - 1]; gv[NZ] = g.nb ? vp : vp;
+    let Vtot = 0;
+    for (let i = 0; i < g.nr; i++) {
+      let H = 0;
+      for (let j = 0; j < NZ; j++) {
+        const c = i * NZ + j;
+        if (g.act[c]) { this.V[c] = g.Az[i] * dz[j]; Vtot += this.V[c]; H += dz[j]; }
+        else this.V[c] = 0;
+      }
+      this.Hcol[i] = H;
+    }
+    this.Vtot = Vtot;
+    return Vtot;
+  }
+
+  derive() {
+    const g = this.g, fuel = this.fuel, RF = PS_RU / fuel.M;
+    for (let c = 0; c < g.N; c++) {
+      if (!g.act[c]) continue;
+      const m = this.m[c], YF = this.mF[c] / m, YP = this.mP[c] / m, YA = 1 - YF - YP;
+      const R = YA * PS_AIR.R + YP * PS_PROD.R + YF * RF;
+      const cp = YA * PS_AIR.cp + YP * PS_PROD.cp + YF * fuel.cpV;
+      this.R[c] = R; this.cp[c] = cp;
+      this.T[c] = this.E[c] / (m * cp);
+      this.rho[c] = this.p0 / (R * this.T[c]);
+      const i = (c / g.NZ) | 0;
+      this.u[c] = this.mu[c] / m; this.w[c] = this.mw[c] / m; this.v[c] = this.mL[c] / (m * g.rc[i]);
+      this.k[c] = Math.max(this.mk[c] / m, 1e-4); this.c[c] = Math.min(1, Math.max(0, this.mc[c] / m));
+    }
+  }
+
+  airMass() {
+    let a = 0;
+    for (let c = 0; c < this.g.N; c++) if (this.g.act[c]) a += this.m[c] - this.mF[c] - this.mP[c];
+    return a;
+  }
+
+  cyclePos(ca) { return ((ca % 720) + 720) % 720; }
+
+  valveLift(pos, open, close, lmax) {
+    if (pos < open || pos > close) return 0;
+    const s = Math.sin(Math.PI * (pos - open) / (close - open));
+    return lmax * s * s;
+  }
+
+  // Top active cell of column i.
+  roofCell(i) {
+    const NZ = this.g.NZ;
+    for (let j = 0; j < NZ; j++) if (this.g.act[i * NZ + j]) return i * NZ + j;
+    return -1;
+  }
+
+  // Cell at (r, y), or -1 inside a wall.
+  cellAt(r, y) {
+    const g = this.g;
+    if (r < 0) r = -r;
+    if (r >= g.R) return -1;
+    const i = Math.min(g.nr - 1, Math.floor(r / g.dr));
+    const yTop = this.yTop;
+    if (y < yTop[0] || y >= yTop[g.NZ]) return -1;
+    let lo = 0, hi = g.NZ - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (yTop[mid] <= y) lo = mid; else hi = mid - 1; }
+    const c = i * g.NZ + lo;
+    return g.act[c] ? c : -1;
+  }
+
+  nearestCell(r, y) {
+    const g = this.g, NZ = g.NZ;
+    const i = Math.min(g.nr - 1, Math.max(0, Math.floor(Math.abs(r) / g.dr)));
+    let best = -1, bd = Infinity;
+    for (let j = 0; j < NZ; j++) {
+      const c = i * NZ + j;
+      if (!g.act[c]) continue;
+      const d = Math.abs(this.yTop[j] + 0.5 * this.dz[j] - y);
+      if (d < bd) { bd = d; best = c; }
+    }
+    return best;
+  }
+
+  // ------------------------------------------------------------ main step
+
+  step() {
+    const p = this.p, g = this.g, N = g.N, NZ = g.NZ, nr = g.nr;
+    const degPerS = p.rpm * 6;
+    // Time step: transport, front and crank angle limits.
+    let dt = Math.min(this.dtLimit || 1e-4, 0.25 / degPerS, this.dt * 1.25);
+    dt = Math.max(dt, 2e-8);
+    this.dt = dt;
+    const caOld = this.ca, caNew = caOld + dt * degPerS;
+    const posOld = this.cyclePos(caOld), posNew = this.cyclePos(caNew);
+    const st = this.stats;
+    this.qStep = 0;
+
+    this.derive();
+    this.sources(dt, posOld, posNew);
+    this.derive();
+
+    // ---- isentropic compression to the new volume
+    const Vold = this.Vtot;
+    const Vnew = this.geometryAt(caNew);
+    const p0 = this.p0;
+    let sumV = 0;
+    for (let c = 0; c < N; c++) if (g.act[c]) { this.Vt[c] = this.m[c] * this.R[c] * this.T[c] / p0; sumV += this.Vt[c]; }
+    let x = Math.pow(sumV / Vnew, 1.3);
+    for (let it = 0; it < 30; it++) {
+      let f = -Vnew, df = 0;
+      const lx = Math.log(x);
+      for (let c = 0; c < N; c++) {
+        if (!g.act[c]) continue;
+        const gm = this.cp[c] / (this.cp[c] - this.R[c]);
+        const vi = this.Vt[c] * Math.exp(-lx / gm);
+        f += vi; df -= vi / (gm * x);
+      }
+      const dx = -f / df;
+      x += dx;
+      if (x <= 0) x = 1e-3;
+      if (Math.abs(dx) < 1e-13 * x) break;
+    }
+    const pNew = p0 * x, lx = Math.log(x);
+    for (let c = 0; c < N; c++) {
+      if (!g.act[c]) continue;
+      const gm = this.cp[c] / (this.cp[c] - this.R[c]);
+      const ratio = Math.exp(-lx / gm);            // volume ratio
+      this.Vt[c] *= ratio;
+      this.E[c] *= Math.exp(lx * (gm - 1) / gm);
+      this.mk[c] *= Math.pow(ratio, -2 / 3);       // rapid distortion of k
+      this.S[c] = (this.Vt[c] - this.V[c]) / dt;
+    }
+    st.work += 0.5 * (p0 + pNew) * (Vnew - Vold);
+    if (posNew < 180 || posNew >= 540) st.workGross += 0.5 * (p0 + pNew) * (Vnew - Vold);
+    this.p0 = pNew;
+    this.derive();
+
+    // ---- centrifugal acceleration from swirl
+    for (let c = 0; c < N; c++) {
+      if (!g.act[c]) continue;
+      const i = (c / NZ) | 0;
+      this.u[c] += dt * this.v[c] * this.v[c] / g.rc[i];
+    }
+
+    this.project(dt);
+    this.advect(dt);
+    this.derive();
+    this.diffuse(dt);
+    this.turbulence(dt);
+    this.derive();
+
+    this.ca = caNew; this.t += dt;
+    this.bookkeeping(posOld, posNew, dt);
+  }
+
+  // ------------------------------------------------------------ projection
+
+  project(dt) {
+    const g = this.g, N = g.N, NZ = g.NZ, nr = g.nr, W = NZ + 1;
+    const a = this.band, Fe = this.Fe, Fd = this.Fd, phi = this.phi, act = g.act, dz = this.dz;
+    a.fill(0);
+    for (let c = 0; c < N; c++) phi[c] = act[c] ? this.S[c] : 0;
+    let maxDiag = 0;
+    for (let i = 0; i < nr; i++) for (let j = 0; j < NZ; j++) {
+      const c = i * NZ + j;
+      if (!act[c]) { a[c * W] = 1; continue; }
+      if (i + 1 < nr && act[c + NZ]) {
+        const n = c + NZ, A = 2 * Math.PI * g.rw[i + 1] * dz[j];
+        const Fs = A * 0.5 * (this.u[c] + this.u[n]);
+        const beta = A * dt / (0.5 * (this.rho[c] + this.rho[n]) * g.dr);
+        Fe[c] = Fs; phi[c] -= Fs; phi[n] += Fs;
+        a[c * W] += beta; a[n * W] += beta; a[n * W + NZ] -= beta;
+        this.bE = this.bE || new Float64Array(N); this.bE[c] = beta;
+      } else Fe[c] = 0;
+      if (j + 1 < NZ && act[c + 1]) {
+        const n = c + 1, A = g.Az[i];
+        const Fs = A * (0.5 * (this.w[c] + this.w[n]) - this.gv[j + 1]);
+        const beta = A * dt / (0.5 * (this.rho[c] + this.rho[n]) * 0.5 * (dz[j] + dz[j + 1]));
+        Fd[c] = Fs; phi[c] -= Fs; phi[n] += Fs;
+        a[c * W] += beta; a[n * W] += beta; a[n * W + 1] -= beta;
+        this.bD = this.bD || new Float64Array(N); this.bD[c] = beta;
+      } else Fd[c] = 0;
+    }
+    for (let c = 0; c < N; c++) if (act[c]) maxDiag = Math.max(maxDiag, a[c * W]);
+    let pin = -1;
+    for (let c = 0; c < N && pin < 0; c++) if (act[c]) pin = c;
+    a[pin * W] += 1e4 * maxDiag;
+    psBandCholesky(a, N, NZ);
+    psBandSolve(a, N, NZ, phi);
+    // Corrected fluxes and cell velocities.
+    const bE = this.bE, bD = this.bD;
+    const gr = this.tmpGr || (this.tmpGr = new Float64Array(N)), gz = this.tmpGz || (this.tmpGz = new Float64Array(N));
+    const nrc = this.tmpNr || (this.tmpNr = new Float64Array(N)), nzc = this.tmpNz || (this.tmpNz = new Float64Array(N));
+    gr.fill(0); gz.fill(0); nrc.fill(0); nzc.fill(0);
+    let maxRate = 0;
+    const out = this.tmpOut || (this.tmpOut = new Float64Array(N));
+    out.fill(0);
+    for (let i = 0; i < nr; i++) for (let j = 0; j < NZ; j++) {
+      const c = i * NZ + j;
+      if (!act[c]) continue;
+      if (i + 1 < nr && act[c + NZ]) {
+        const n = c + NZ, d = phi[n] - phi[c];
+        Fe[c] -= bE[c] * d;
+        const du = -dt * d / (0.5 * (this.rho[c] + this.rho[n]) * g.dr);
+        gr[c] += du; gr[n] += du; nrc[c]++; nrc[n]++;
+        if (Fe[c] > 0) out[c] += Fe[c]; else out[n] -= Fe[c];
+      }
+      if (j + 1 < NZ && act[c + 1]) {
+        const n = c + 1, d = phi[n] - phi[c];
+        Fd[c] -= bD[c] * d;
+        const dw = -dt * d / (0.5 * (this.rho[c] + this.rho[n]) * 0.5 * (dz[j] + dz[j + 1]));
+        gz[c] += dw; gz[n] += dw; nzc[c]++; nzc[n]++;
+        if (Fd[c] > 0) out[c] += Fd[c]; else out[n] -= Fd[c];
+      }
+    }
+    for (let c = 0; c < N; c++) {
+      if (!act[c]) continue;
+      if (nrc[c]) this.u[c] += gr[c] / nrc[c];
+      if (nzc[c]) this.w[c] += gz[c] / nzc[c];
+      this.mu[c] = this.m[c] * this.u[c]; this.mw[c] = this.m[c] * this.w[c];
+      const rate = out[c] / this.Vt[c];
+      if (rate > maxRate) maxRate = rate;
+    }
+    this.outRate = out;
+    this.maxFluxRate = maxRate;
+  }
+
+  // ------------------------------------------------------------ transport
+
+  advect(dt) {
+    const g = this.g, N = g.N, NZ = g.NZ, nr = g.nr, act = g.act;
+    const old = this.old, nf = PS_FIELDS.length;
+    for (const f of PS_FIELDS) old[f].set(this[f]);
+    // Donor limiter so no cell can give away more than 90 % of its gas.
+    const lim = this.tmpLim || (this.tmpLim = new Float64Array(N));
+    for (let c = 0; c < N; c++) lim[c] = act[c] ? Math.min(1, 0.9 * this.Vt[c] / Math.max(this.outRate[c] * dt, 1e-300)) : 0;
+    const fields = PS_FIELDS.map(f => this[f]), olds = PS_FIELDS.map(f => old[f]);
+    const om = old.m;
+    const spec = (k, c) => olds[k][c] / om[c];
+    const minmod = (a, b) => (a * b <= 0 ? 0 : (Math.abs(a) < Math.abs(b) ? a : b));
+    const face = (P, Nn, U, flux) => {
+      // P donor, Nn acceptor, U upstream of donor (or -1).
+      const mass = flux * dt * lim[P] * om[P] / this.Vt[P];
+      fields[0][P] -= mass; fields[0][Nn] += mass;
+      for (let k = 1; k < nf; k++) {
+        const sP = spec(k, P);
+        let sf = sP;
+        if (U >= 0) sf += 0.5 * minmod(sP - spec(k, U), spec(k, Nn) - sP);
+        const q = mass * sf;
+        fields[k][P] -= q; fields[k][Nn] += q;
+      }
+    };
+    for (let i = 0; i < nr; i++) for (let j = 0; j < NZ; j++) {
+      const c = i * NZ + j;
+      if (!act[c]) continue;
+      if (i + 1 < nr && act[c + NZ]) {
+        const n = c + NZ, F = this.Fe[c];
+        if (F > 0) face(c, n, i > 0 && act[c - NZ] ? c - NZ : -1, F);
+        else if (F < 0) face(n, c, i + 2 < nr && act[n + NZ] ? n + NZ : -1, -F);
+      }
+      if (j + 1 < NZ && act[c + 1]) {
+        const n = c + 1, F = this.Fd[c];
+        if (F > 0) face(c, n, j > 0 && act[c - 1] ? c - 1 : -1, F);
+        else if (F < 0) face(n, c, j + 2 < NZ && act[n + 1] ? n + 1 : -1, -F);
+      }
+    }
+    for (let c = 0; c < N; c++) {
+      if (!act[c]) continue;
+      if (this.m[c] < 1e-14) this.m[c] = 1e-14;
+      if (this.mF[c] < 0) this.mF[c] = 0;
+      if (this.mP[c] < 0) this.mP[c] = 0;
+      if (this.mF[c] + this.mP[c] > this.m[c]) { const s = this.m[c] / (this.mF[c] + this.mP[c]); this.mF[c] *= s; this.mP[c] *= s; }
+      if (this.mc[c] < 0) this.mc[c] = 0;
+      if (this.mk[c] < 0) this.mk[c] = 0;
+    }
+  }
+
+  // Implicit diffusion along radial lines then axial lines. Momentum, species,
+  // temperature and k share the turbulent viscosity; walls add friction and heat.
+  diffuse(dt) {
+    const g = this.g, N = g.N, NZ = g.NZ, nr = g.nr, act = g.act, p = this.p, dz = this.dz;
+    const nut = this.tmpNut || (this.tmpNut = new Float64Array(N));
+    const Lm = this.tmpL || (this.tmpL = new Float64Array(N));
+    this.lengthScales(Lm);
+    for (let c = 0; c < N; c++) if (act[c]) {
+      const nu = psViscosity(this.T[c]) / this.rho[c];
+      nut[c] = nu + 0.55 * Math.sqrt(this.k[c]) * Lm[c];
+    }
+    const Y1 = this.tmpY1 || (this.tmpY1 = new Float64Array(N)), Y2 = this.tmpY2 || (this.tmpY2 = new Float64Array(N));
+    for (let c = 0; c < N; c++) if (act[c]) { Y1[c] = this.mF[c] / this.m[c]; Y2[c] = this.mP[c] / this.m[c]; }
+    const vars = [this.u, this.w, this.v, Y1, Y2, this.T, this.k];
+    const wallT = [p.tHead, p.tLiner, p.tPiston];
+    const tri = this.tri;
+    let qWall = 0;
+    const self = this;
+    // Solve one line of cells. cells: indices; G[k] conductance between k and k+1 (kg/s);
+    // wallLo/wallHi: wall conductance and type at the line ends.
+    function line(cells, n, G, walls) {
+      for (let vi = 0; vi < vars.length; vi++) {
+        const X = vars[vi];
+        for (let k = 0; k < n; k++) {
+          const c = cells[k];
+          const wgt = vi === 5 ? self.m[c] * self.cp[c] : self.m[c];
+          const gcoef = vi === 5 ? self.cp[c] / 0.9 : vi >= 3 ? 1 / 0.9 : 1;
+          tri.di[k] = wgt / dt; tri.rhs[k] = wgt / dt * X[c];
+          tri.lo[k] = 0; tri.up[k] = 0;
+          if (k > 0) { const gg = G[k - 1] * gcoef; tri.lo[k] = -gg; tri.di[k] += gg; }
+          if (k < n - 1) { const gg = G[k] * gcoef; tri.up[k] = -gg; tri.di[k] += gg; }
+          // Walls on this cell
+          const wl = walls[k];
+          if (wl) {
+            if (vi <= 2) {               // friction toward the wall velocity
+              tri.di[k] += wl.f;
+              if (vi === 1) tri.rhs[k] += wl.f * wl.vw;
+            } else if (vi === 5) {        // heat transfer
+              tri.di[k] += wl.h; tri.rhs[k] += wl.h * wl.Tw;
+            }
+          }
+        }
+        psTridiag(n, tri.lo, tri.di, tri.up, tri.rhs, tri.x, tri.work);
+        for (let k = 0; k < n; k++) {
+          const c = cells[k];
+          if (vi === 5) {
+            const wl = walls[k];
+            if (wl) qWall += wl.h * (tri.x[k] - wl.Tw) * dt;
+          }
+          X[c] = tri.x[k];
+        }
+      }
+    }
+    const cells = new Int32Array(Math.max(nr, NZ)), G = new Float64Array(Math.max(nr, NZ));
+    const walls = new Array(Math.max(nr, NZ));
+    const ht = p.heatTransfer;
+    const wallFor = (c, A, type, normalDist, vw) => {
+      const speed = Math.hypot(this.u[c], this.w[c] - (type === 2 ? this.vp : 0), this.v[c]);
+      const sk = Math.sqrt(this.k[c]);
+      const h = ht * (0.006 * this.rho[c] * this.cp[c] * (speed + 1.5 * sk) + psConductivity(this.T[c]) / Math.max(normalDist, 1e-4)) * A;
+      const f = this.rho[c] * 0.004 * (speed + sk) * A;
+      return { h, f, Tw: wallT[type], vw: vw };
+    };
+    const merge = (a, b) => (a ? (b ? { h: a.h + b.h, f: a.f + b.f, Tw: (a.h * a.Tw + b.h * b.Tw) / (a.h + b.h), vw: (a.f * a.vw + b.f * b.vw) / (a.f + b.f) } : a) : b);
+    // Radial lines.
+    for (let j = 0; j < NZ; j++) {
+      let n = 0;
+      const typeSide = g.rowType[j] === 0 ? 0 : g.rowType[j] === 1 ? 1 : 2;
+      for (let i = 0; i <= nr; i++) {
+        const c = i * NZ + j;
+        if (i < nr && act[c]) {
+          cells[n] = c;
+          if (n > 0) {
+            const pc = cells[n - 1];
+            const A = 2 * Math.PI * g.rw[i] * dz[j];
+            G[n - 1] = 0.5 * (this.rho[pc] * nut[pc] + this.rho[c] * nut[c]) * A / g.dr;
+          }
+          walls[n] = null;
+          n++;
+        } else {
+          if (n > 0) {
+            const last = cells[n - 1], il = (last / NZ) | 0;
+            const A = 2 * Math.PI * g.rw[il + 1] * dz[j];
+            walls[n - 1] = wallFor(last, A, typeSide, 0.5 * g.dr, typeSide === 2 ? this.vp : 0);
+            line(cells, n, G, walls);
+          }
+          n = 0;
+        }
+      }
+    }
+    // Axial lines.
+    for (let i = 0; i < nr; i++) {
+      let n = 0;
+      for (let j = 0; j <= NZ; j++) {
+        const c = i * NZ + j;
+        if (j < NZ && act[c]) {
+          cells[n] = c;
+          walls[n] = null;
+          if (n > 0) {
+            const pc = cells[n - 1];
+            G[n - 1] = 0.5 * (this.rho[pc] * nut[pc] + this.rho[c] * nut[c]) * g.Az[i] / (0.5 * (dz[j - 1] + dz[j]));
+          } else {
+            walls[0] = wallFor(c, g.Az[i], 0, 0.5 * dz[j], 0);   // roof: head
+          }
+          n++;
+        } else {
+          if (n > 0) {
+            const last = cells[n - 1], jl = last - i * NZ;
+            walls[n - 1] = merge(walls[n - 1], wallFor(last, g.Az[i], 2, 0.5 * dz[jl], this.vp));
+            line(cells, n, G, walls);
+          }
+          n = 0;
+        }
+      }
+    }
+    // Liner friction and heat already done in the radial pass for gap rows.
+    for (let c = 0; c < N; c++) {
+      if (!act[c]) continue;
+      const m = this.m[c];
+      const YF = Math.max(0, Y1[c]), YP = Math.max(0, Y2[c]);
+      this.mF[c] = m * YF; this.mP[c] = m * Math.min(YP, 1 - YF);
+      const i = (c / NZ) | 0;
+      this.mu[c] = m * this.u[c]; this.mw[c] = m * this.w[c]; this.mL[c] = m * this.v[c] * g.rc[i];
+      this.mk[c] = m * Math.max(this.k[c], 1e-4);
+      const fuel = this.fuel, YA = 1 - YF - YP;
+      const cp = YA * PS_AIR.cp + YP * PS_PROD.cp + YF * fuel.cpV;
+      this.E[c] = m * cp * this.T[c];
+    }
+    this.stats.qWall += qWall;
+  }
+
+  lengthScales(Lm) {
+    const g = this.g, NZ = g.NZ, act = g.act, dz = this.dz;
+    for (let i = 0; i < g.nr; i++) {
+      let top = -1, bot = -1;
+      for (let j = 0; j < NZ; j++) if (act[i * NZ + j]) { if (top < 0) top = j; bot = j; }
+      if (top < 0) continue;
+      const yT = this.yTop[top], yB = this.yTop[bot] + dz[bot];
+      const Lmax = Math.min(0.2 * this.Hcol[i], 0.04 * g.B);
+      for (let j = top; j <= bot; j++) {
+        const c = i * NZ + j;
+        if (!act[c]) continue;
+        const yc = this.yTop[j] + 0.5 * dz[j];
+        let yw = Math.min(yc - yT, yB - yc, g.R - g.rc[i]);
+        // radial walls of the recess
+        if (i + 1 < g.nr && !act[c + NZ]) yw = Math.min(yw, g.rw[i + 1] - g.rc[i]);
+        Lm[c] = Math.max(5e-5, Math.min(0.41 * yw, Lmax));
+      }
+    }
+  }
+
+  turbulence(dt) {
+    const g = this.g, N = g.N, NZ = g.NZ, nr = g.nr, act = g.act, dz = this.dz;
+    const Lm = this.tmpL;
+    for (let i = 0; i < nr; i++) for (let j = 0; j < NZ; j++) {
+      const c = i * NZ + j;
+      if (!act[c]) continue;
+      let s2 = 0, walls = 0, wallY = 1;
+      const add = (n, d) => {
+        const du = this.u[n] - this.u[c], dw = this.w[n] - this.w[c], dv = this.v[n] - this.v[c];
+        s2 += 0.5 * (du * du + dw * dw + dv * dv) / (d * d);
+      };
+      const wall = d => { walls++; wallY = Math.min(wallY, 0.5 * d); };
+      // Wall faces go through a wall function instead of the velocity jump.
+      if (i > 0) add(c - NZ, g.dr);
+      if (i + 1 < nr && act[c + NZ]) add(c + NZ, g.dr); else wall(g.dr);
+      if (j > 0 && act[c - 1]) add(c - 1, 0.5 * (dz[j] + dz[j - 1])); else wall(dz[j]);
+      if (j + 1 < NZ && act[c + 1]) add(c + 1, 0.5 * (dz[j] + dz[j + 1])); else wall(dz[j]);
+      const u0 = this.u[c] / g.rc[i];
+      s2 += 2 * u0 * u0;
+      const k = this.k[c], L = Lm[c];
+      const nut = 0.55 * Math.sqrt(k) * L;
+      let P = nut * s2;
+      if (walls) {
+        const ut = 0.063 * Math.hypot(this.u[c], this.w[c] - (g.rowType[j] === 0 ? 0 : this.vp), this.v[c]);
+        P += walls * ut * ut * ut / (0.41 * Math.max(wallY, 1e-5)) * 0.5;
+      }
+      const kn = (k + dt * P) / (1 + dt * 0.1643 * Math.sqrt(k) / L);
+      this.mk[c] = this.m[c] * Math.min(Math.max(kn, 1e-4), 5e3);
+    }
+  }
+
+  // ------------------------------------------------------------ sources
+
+  sources(dt, posOld, posNew) {
+    this.valves(dt, posNew);
+    this.injection(dt, posOld, posNew);
+    this.droplets(dt);
+    this.filmEvaporation(dt);
+    this.combustion(dt, posOld, posNew);
+  }
+
+  addGas(c, dm, YF, YP, T, cp, ux, uy, vt, k) {
+    const i = (c / this.g.NZ) | 0;
+    this.m[c] += dm; this.mF[c] += dm * YF; this.mP[c] += dm * YP; this.E[c] += dm * cp * T;
+    this.mu[c] += dm * ux; this.mw[c] += dm * uy; this.mL[c] += dm * vt * this.g.rc[i]; this.mk[c] += dm * k;
+  }
+
+  removeGas(c, dm) {
+    const f = Math.min(0.9, dm / this.m[c]);
+    const out = { m: this.m[c] * f, mF: this.mF[c] * f, mP: this.mP[c] * f, E: this.E[c] * f };
+    for (const key of PS_FIELDS) this[key][c] *= 1 - f;
+    return out;
+  }
+
+  totalMass() { let s = 0; for (let c = 0; c < this.g.N; c++) if (this.g.act[c]) s += this.m[c]; return s; }
+
+  valves(dt, pos) {
+    const p = this.p, g = this.g, fuel = this.fuel;
+    const B = p.bore;
+    const Lin = this.valveLift(pos, 360 - p.ivo, 540 + p.ivc, p.ivLift);
+    const Lex = this.valveLift(pos, 180 - p.evo, 360 + p.evc, p.evLift);
+    this.liftIn = Lin; this.liftEx = Lex;
+    if (Lin <= 0 && Lex <= 0) return;
+    const M = this.totalMass();
+    let Tm = 0, Rm = 0, cpm = 0;
+    for (let c = 0; c < g.N; c++) if (g.act[c]) { Tm += this.m[c] * this.T[c]; Rm += this.m[c] * this.R[c]; cpm += this.m[c] * this.cp[c]; }
+    Tm /= M; Rm /= M; cpm /= M;
+    const gm = cpm / (cpm - Rm);
+    const p0 = this.p0;
+    const limit = (pr) => 0.3 * Math.abs(pr - p0) * this.Vtot / (gm * Rm * Tm);
+    const RF = PS_RU / fuel.M;
+    if (Lin > 0) {
+      const D = p.ivDiam * B, A = Math.min(2 * Math.PI * D * Lin, 2 * Math.PI * D * D / 4 * 0.9);
+      const Cd = 0.65;
+      if (p.pIntake >= p0) {
+        // Fresh charge: air + fuel vapour (port injection); liquid enters as droplets.
+        const pfi = p.injection === 'puerto';
+        const f = pfi ? 1 / (p.lambda * fuel.AFR) : 0;
+        const vf = fuel.liquid ? p.pfiVapor : 1;
+        const YF = f * vf / (1 + f * vf);
+        const R = (1 - YF) * PS_AIR.R + YF * RF, cp = (1 - YF) * PS_AIR.cp + YF * fuel.cpV;
+        let dm = psOrifice(Cd, A, p.pIntake, p.tIntake, R, cp / (cp - R), p0) * dt;
+        dm = Math.min(dm, limit(p.pIntake));
+        const rhoIn = p.pIntake / (R * p.tIntake);
+        const U = dm / dt / (rhoIn * A);
+        this.injectThroughValve(g.inCols, dm, U, true, YF, R, cp, f, vf);
+      } else {
+        // Backflow into the intake port.
+        let dm = psOrifice(Cd, A, p0, Tm, Rm, gm, p.pIntake) * dt;
+        dm = Math.min(dm, limit(p.pIntake));
+        this.extractThroughValve(g.inCols, dm, this.intakeBuf);
+      }
+    }
+    if (Lex > 0) {
+      const D = p.evDiam * B, A = Math.min(2 * Math.PI * D * Lex, 2 * Math.PI * D * D / 4 * 0.9);
+      const Cd = 0.65;
+      if (p0 > p.pExhaust) {
+        let dm = psOrifice(Cd, A, p0, Tm, Rm, gm, p.pExhaust) * dt;
+        dm = Math.min(dm, limit(p.pExhaust));
+        const out = { m: 0, mF: 0, mP: 0, E: 0 };
+        this.extractThroughValve(g.exCols, dm, out);
+        if (out.m > 0) {
+          const er = this.exhaustRes, a = out.m / (out.m + 2e-4);
+          const YF = out.mF / out.m, YP = out.mP / out.m;
+          const cpo = (1 - YF - YP) * PS_AIR.cp + YP * PS_PROD.cp + YF * fuel.cpV;
+          er.YF += a * (YF - er.YF); er.YP += a * (YP - er.YP); er.T += a * (0.9 * out.E / (out.m * cpo) - er.T);
+          this.stats.exhaustOut = (this.stats.exhaustOut || 0) + out.m;
+          this.stats.hcOut = (this.stats.hcOut || 0) + out.mF;
+        }
+      } else {
+        // Exhaust gas flows back in.
+        const er = this.exhaustRes;
+        const R = (1 - er.YF - er.YP) * PS_AIR.R + er.YP * PS_PROD.R + er.YF * RF;
+        const cp = (1 - er.YF - er.YP) * PS_AIR.cp + er.YP * PS_PROD.cp + er.YF * fuel.cpV;
+        let dm = psOrifice(Cd, A, p.pExhaust, er.T, R, cp / (cp - R), p0) * dt;
+        dm = Math.min(dm, limit(p.pExhaust));
+        const U = dm / dt / (p.pExhaust / (R * er.T) * A);
+        this.spreadInflow(g.exCols, dm, er.YF, er.YP, er.T, cp, U, -1);
+      }
+    }
+  }
+
+  // Distributes an inflow over the roof cells of the given columns, as a jet.
+  spreadInflow(cols, dm, YF, YP, T, cp, U, dir) {
+    const g = this.g, p = this.p;
+    let At = 0;
+    for (const i of cols) At += g.Az[i];
+    const ja = p.jetAngle * PS_DEG;
+    const ux = dir * U * Math.sin(ja), uy = U * Math.cos(ja), vt = U * p.swirl;
+    const k = 0.012 * U * U;
+    for (const i of cols) {
+      const c = this.roofCell(i);
+      if (c < 0) continue;
+      this.addGas(c, dm * g.Az[i] / At, YF, YP, T, cp, ux, uy, vt, k);
+    }
+  }
+
+  injectThroughValve(cols, dm, U, fresh, YFfresh, R, cp, f, vf) {
+    const buf = this.intakeBuf, fuel = this.fuel, p = this.p;
+    // Gas pushed back into the port earlier comes in first.
+    if (buf.m > 0) {
+      const take = Math.min(buf.m, dm), s = take / buf.m;
+      const YF = buf.mF / buf.m, YP = buf.mP / buf.m;
+      const cpb = (1 - YF - YP) * PS_AIR.cp + YP * PS_PROD.cp + YF * fuel.cpV;
+      const T = buf.E / (buf.m * cpb);
+      this.spreadInflow(cols, take, YF, YP, T, cpb, U, 1);
+      buf.m -= take; buf.mF -= buf.mF * s; buf.mP -= buf.mP * s; buf.E -= buf.E * s;
+      if (buf.m < 1e-12) buf.m = buf.mF = buf.mP = buf.E = 0;
+      dm -= take;
+    }
+    if (dm <= 0) return;
+    this.spreadInflow(cols, dm, YFfresh, 0, p.tIntake, cp, U, 1);
+    const air = dm * (1 - YFfresh);
+    this.stats.fuelIn += dm * YFfresh;
+    // Port injected liquid rides in with the charge.
+    if (p.injection === 'puerto' && fuel.liquid && vf < 1) {
+      const liq = air * f * (1 - vf);
+      this.stats.fuelIn += liq;
+      this.spawnLiquid(liq, 'valve', U);
+    }
+  }
+
+  extractThroughValve(cols, dm, sink) {
+    const g = this.g;
+    let At = 0;
+    for (const i of cols) At += g.Az[i];
+    for (const i of cols) {
+      const c = this.roofCell(i);
+      if (c < 0) continue;
+      const o = this.removeGas(c, dm * g.Az[i] / At);
+      sink.m += o.m; sink.mF += o.mF; sink.mP += o.mP; sink.E += o.E;
+    }
+  }
+
+  // ------------------------------------------------------------ liquid fuel
+
+  injection(dt, posOld, posNew) {
+    const p = this.p, fuel = this.fuel;
+    if (p.injection !== 'directa') return;
+    const soiPos = (720 - p.diSoi) % 720;
+    const crossed = (posOld <= soiPos && posNew > soiPos) || (posOld > posNew && (soiPos >= posOld || soiPos < posNew));
+    if (crossed) {
+      const air = Math.max(this.lastTrappedAir, 1e-6);
+      const mInj = air / (p.lambda * fuel.AFR);
+      const dp = Math.max(p.diPressure - this.p0, 1e6);
+      const rho = fuel.liquid ? fuel.rhoL : 50;
+      const rate = 0.7 * 1.46e-7 * Math.sqrt(2 * rho * dp) * (fuel.liquid ? 1 : 0.05);
+      this.inj = { left: mInj, rate, U: 0.7 * Math.sqrt(2 * dp / rho), total: mInj };
+      this.stats.fuelIn += mInj;
+      this.stats.soiCa = this.ca;
+    }
+    if (this.inj && this.inj.left > 0) {
+      const dm = Math.min(this.inj.left, this.inj.rate * dt);
+      this.inj.left -= dm;
+      if (fuel.liquid) this.spawnLiquid(dm, 'injector', this.inj.U);
+      else {
+        // Gas injection: fuel vapour jet from the injector.
+        const c = this.roofCell(0);
+        if (c >= 0) this.addGas(c, dm, 1, 0, 300, fuel.cpV, 0, Math.min(this.inj.U, 300), 0, 10);
+      }
+      if (this.inj.left <= 0) this.stats.eoiCa = this.ca;
+    }
+  }
+
+  spawnLiquid(mass, where, U) {
+    if (mass <= 0) return;
+    const p = this.p, fuel = this.fuel, g = this.g;
+    if (!this.parcelMass) {
+      const air = Math.max(this.lastTrappedAir, 1e-6);
+      this.parcelMass = air / (p.lambda * fuel.AFR) / 700;
+    }
+    this.injAcc += mass;
+    while (this.injAcc >= this.parcelMass && this.parcels.length < 3000) {
+      const pm = this.parcelMass;
+      this.injAcc -= pm;
+      let d, r, y, u, w, vt, T;
+      const rr = Math.random();
+      if (where === 'injector') {
+        d = p.diDrop * Math.pow(-Math.log(1 - 0.98 * rr), 1 / 3.0) * 0.9;
+        const cone = 0.5 * p.diCone * PS_DEG * (0.85 + 0.3 * Math.random());
+        const Ui = U * (0.8 + 0.2 * Math.random());
+        r = 0.0005 + 0.0005 * Math.random();
+        const c0 = this.roofCell(0);
+        y = this.yTop[c0 - 0] + 0.0004;
+        u = Ui * Math.sin(cone); w = Ui * Math.cos(cone); vt = 0; T = 330;
+      } else {
+        d = p.pfiDrop * Math.pow(-Math.log(1 - 0.98 * rr), 1 / 3.0) * 0.9;
+        const i = g.inCols[(Math.random() * g.inCols.length) | 0];
+        r = g.rw[i] + g.dr * Math.random();
+        const c0 = this.roofCell(i);
+        y = this.yTop[c0 - i * g.NZ] + 0.0003;
+        const ja = p.jetAngle * PS_DEG;
+        u = 0.5 * U * Math.sin(ja); w = 0.5 * U * Math.cos(ja); vt = 0.5 * U * p.swirl; T = p.tIntake;
+      }
+      d = Math.max(3e-6, d);
+      const md = fuel.rhoL * Math.PI * d * d * d / 6;
+      this.parcels.push({ r, y, u, w, vt, d, T, n: pm / md, alive: true });
+    }
+  }
+
+  droplets(dt) {
+    const fuel = this.fuel;
+    if (!fuel.liquid || !this.parcels.length) return;
+    const p0 = this.p0, g = this.g, NZ = g.NZ, RF = PS_RU / fuel.M;
+    const keep = [];
+    for (const q of this.parcels) {
+      let c = this.cellAt(q.r, q.y);
+      if (c < 0) {
+        // The piston or a wall moved over the drop: it becomes film on the nearest cell.
+        c = this.nearestCell(q.r, q.y);
+        this.film[c] += q.n * fuel.rhoL * Math.PI * q.d ** 3 / 6;
+        this.filmWall[c] = q.y < this.yTop[c % NZ] ? 0 : 2;
+        continue;
+      }
+      const Tg = this.T[c], rhoG = this.rho[c], mu = psViscosity(Tg), kg = psConductivity(0.5 * (Tg + q.T));
+      const i = (c / NZ) | 0;
+      const ug = this.u[c], wg = this.w[c], vg = this.v[c] * q.r / g.rc[i];
+      const rel = Math.hypot(q.u - ug, q.w - wg, q.vt - vg);
+      const Re = rhoG * rel * q.d / mu;
+      const Cd = Re < 1000 ? 24 / Math.max(Re, 1e-6) * (1 + Math.pow(Re, 2 / 3) / 6) : 0.424;
+      const md = fuel.rhoL * Math.PI * q.d ** 3 / 6;
+      const tauV = Re > 1e-6 ? (4 * fuel.rhoL * q.d) / (3 * rhoG * Cd * rel) : fuel.rhoL * q.d * q.d / (18 * mu);
+      const e = Math.exp(-dt / tauV);
+      const nu = ug + (q.u - ug) * e, nw = wg + (q.w - wg) * e, nv = vg + (q.vt - vg) * e;
+      const dmu = q.n * md;
+      this.mu[c] -= dmu * (nu - q.u); this.mw[c] -= dmu * (nw - q.w);
+      this.mL[c] -= dmu * (nv - q.vt) * q.r;
+      // Evaporation (Spalding mass number, Ranz-Marshall).
+      const pSat = PS_ATM * Math.exp(fuel.Lb * fuel.M / PS_RU * (1 / fuel.Tb - 1 / Math.min(q.T, fuel.Tc - 1)));
+      const Xs = Math.min(0.995, pSat / p0);
+      const Mg = PS_RU / this.R[c];
+      const Ys = Xs * fuel.M / (Xs * fuel.M + (1 - Xs) * Mg);
+      const YF = this.mF[c] / this.m[c];
+      const BM = Math.max(0, (Ys - YF) / (1 - Ys));
+      const Dv = 1.0e-5 * Math.pow(Tg / 300, 1.75) * (1e5 / p0);
+      const Sc = mu / (rhoG * Dv), Pr = 0.7;
+      const sq = Math.sqrt(Re);
+      const Sh = 2 + 0.552 * sq * Math.cbrt(Sc), Nu = 2 + 0.552 * sq * Math.cbrt(Pr);
+      let mdot = Math.PI * q.d * rhoG * Dv * Sh * Math.log1p(BM);
+      const L = fuel.Lb * Math.pow(Math.max(0.01, (fuel.Tc - q.T) / (fuel.Tc - fuel.Tb)), 0.38);
+      const zc = fuel.cpV * mdot / (Math.PI * q.d * kg * Nu);
+      const corr = zc > 1e-8 ? zc / Math.expm1(zc) : 1;
+      const Q = Math.PI * q.d * kg * Nu * (Tg - q.T) * corr;
+      let dmd = Math.min(md, mdot * dt);
+      let dT = (Q * dt - dmd * L) / (md * fuel.cL);
+      // keep the droplet temperature update stable for small drops
+      const tauT = md * fuel.cL / Math.max(Math.PI * q.d * kg * Nu, 1e-30);
+      if (dt > 0.5 * tauT) dT *= 0.5 * tauT / dt * 2 * (1 - Math.exp(-dt / tauT));
+      const mNew = md - dmd;
+      const evap = dmd * q.n;
+      if (evap > 0) {
+        this.m[c] += evap; this.mF[c] += evap; this.E[c] += evap * fuel.cpV * q.T;
+        this.mu[c] += evap * nu; this.mw[c] += evap * nw; this.mL[c] += evap * nv * q.r;
+        this.mk[c] += evap * this.k[c];
+      }
+      this.E[c] -= Q * dt * q.n;
+      q.T = Math.min(fuel.Tc - 2, q.T + dT);
+      q.u = nu; q.w = nw; q.vt = nv;
+      if (mNew <= md * 1e-4 || q.d < 1.5e-6) {
+        // Last bit of a tiny drop flashes to vapour.
+        const rest = mNew * q.n;
+        this.m[c] += rest; this.mF[c] += rest; this.E[c] += rest * fuel.cpV * q.T;
+        q.alive = false;
+        continue;
+      }
+      q.d = Math.cbrt(6 * mNew / (Math.PI * fuel.rhoL));
+      // Move; swirl motion of a ring is folded into r through conservation of
+      // angular momentum (centrifugal drift).
+      q.u += dt * q.vt * q.vt / Math.max(q.r, 1e-4);
+      const nr = q.r + q.u * dt, ny = q.y + q.w * dt;
+      let cr = nr;
+      if (cr < 0) { cr = -cr; q.u = -q.u; }
+      const cn = this.cellAt(cr, ny);
+      if (cn < 0) {
+        // Wall impingement: the drop joins the film of the cell it came from.
+        this.film[c] += q.n * fuel.rhoL * Math.PI * q.d ** 3 / 6;
+        this.filmWall[c] = ny < this.yTop[c % NZ] ? 0 : (cr >= g.R - 1e-9 ? 1 : 2);
+        q.alive = false;
+        continue;
+      }
+      q.vt *= q.r / Math.max(cr, 1e-5);
+      q.r = cr; q.y = ny;
+      keep.push(q);
+    }
+    this.parcels = keep.filter(q => q.alive);
+  }
+
+  filmEvaporation(dt) {
+    const fuel = this.fuel, g = this.g, p = this.p;
+    if (!fuel.liquid) return;
+    const wallT = [p.tHead, p.tLiner, p.tPiston];
+    let total = 0;
+    for (let c = 0; c < g.N; c++) {
+      if (!g.act[c] || this.film[c] <= 0) continue;
+      const Tw = wallT[this.filmWall[c]];
+      const pSat = PS_ATM * Math.exp(fuel.Lb * fuel.M / PS_RU * (1 / fuel.Tb - 1 / Math.min(Tw, fuel.Tc - 1)));
+      const Xs = Math.min(0.995, pSat / this.p0);
+      const Mg = PS_RU / this.R[c];
+      const Ys = Xs * fuel.M / (Xs * fuel.M + (1 - Xs) * Mg);
+      const YF = this.mF[c] / this.m[c];
+      const BM = Math.max(0, (Ys - YF) / (1 - Ys));
+      const speed = Math.hypot(this.u[c], this.w[c]) + 1.5 * Math.sqrt(this.k[c]);
+      const hm = 0.006 * this.rho[c] * speed;           // kg/m2s
+      const Afilm = Math.min(this.g.Az[(c / g.NZ) | 0], this.film[c] / (fuel.rhoL * 2e-5));
+      // Diffusion into the gas, plus boiling when the wall is above the saturation temperature.
+      const Tsat = 1 / (1 / fuel.Tb - Math.log(this.p0 / PS_ATM) * PS_RU / (fuel.Lb * fuel.M));
+      const boil = Tw > Tsat ? 4000 * (Tw - Tsat) / fuel.Lb : 0;
+      const dm = Math.min(this.film[c], (hm * Math.log1p(BM) + boil) * Afilm * dt);
+      if (dm > 0) {
+        this.film[c] -= dm;
+        this.m[c] += dm; this.mF[c] += dm; this.E[c] += dm * fuel.cpV * Tw;
+      }
+      total += this.film[c];
+    }
+    this.filmTotal = total;
+  }
+
+  // ------------------------------------------------------------ combustion
+
+  combustion(dt, posOld, posNew) {
+    const p = this.p, g = this.g, N = g.N, NZ = g.NZ, nr = g.nr, act = g.act, fuel = this.fuel, st = this.stats;
+    const p0 = this.p0, dz = this.dz;
+    const q = this.q;
+    for (let c = 0; c < N; c++) q[c] = 0;
+    const burnCell = (c, f) => {
+      // Burn the fraction f of the reactants left in cell c.
+      const m = this.m[c], mF = this.mF[c], mA = m - mF - this.mP[c];
+      const dF = f * Math.min(mF, mA / fuel.AFR);
+      if (dF <= 0) return 0;
+      this.mF[c] -= dF; this.mP[c] += dF * (1 + fuel.AFR);
+      this.E[c] += dF * fuel.LHV;
+      q[c] += dF * fuel.LHV;
+      return dF;
+    };
+    // Spark: window of 1.5 ms after the spark angle.
+    const sparkWin = 1.5e-3 * p.rpm * 6;
+    const cyc = posNew >= 360 ? posNew - 720 : posNew, cycOld = posOld >= 360 ? posOld - 720 : posOld;
+    const inWin = cyc >= -p.spark && cyc <= -p.spark + sparkWin;
+    this.sparking = inWin && !this.ignited;
+    let kernel = -1;
+    if (inWin && !this.ignited) {
+      const c = this.sparkCell();
+      if (c >= 0) {
+        const YF = this.mF[c] / this.m[c], YA = 1 - YF - this.mP[c] / this.m[c];
+        const phi = YA > 0 ? YF / YA * fuel.AFR : 0;
+        const Sl = psLaminarSpeed(fuel, phi, this.T[c], p0, this.mP[c] / this.m[c]);
+        if (Sl > 0.05) {
+          this.ignited = true; st.ignitionCa = this.ca;
+          this.mc[c] = this.m[c]; this.c[c] = 1;
+          kernel = c;
+          st.uSpark = Math.sqrt(2 / 3 * this.k[c]);
+        }
+      }
+    }
+    if (kernel >= 0) burnCell(kernel, 1);
+    if (!this.ignited && cyc > -p.spark + sparkWin && cycOld <= -p.spark + sparkWin) { st.misfire = true; }
+
+    // Unburned gas temperature (mass weighted over cells the flame has not reached).
+    let mu = 0, Tu = 0, Vb = 0;
+    for (let c = 0; c < N; c++) if (act[c]) {
+      if (this.c[c] < 0.05) { mu += this.m[c]; Tu += this.m[c] * this.T[c]; }
+      Vb += this.c[c] * this.Vt[c] || this.c[c] * this.V[c];
+    }
+    Tu = mu > 0 ? Tu / mu : 800;
+    this.Tu = Tu;
+    const rf = Math.cbrt(3 * Vb / (2 * Math.PI));
+    const fk = 1 - Math.exp(-rf / 0.004);
+    let SmaxDl = 0;
+    const cOld = this.tmpC || (this.tmpC = new Float64Array(N));
+    cOld.set(this.c);
+    const RF = PS_RU / fuel.M;
+    let qStep = 0, burnedStep = 0;
+    if (this.ignited || this.knockActive) {
+      for (let i = 0; i < nr; i++) for (let j = 0; j < NZ; j++) {
+        const c = i * NZ + j;
+        if (!act[c]) continue;
+        const ci = cOld[c];
+        if (ci >= 0.999) continue;
+        const m = this.m[c];
+        // Residual fraction and equivalence ratio of the fresh gas, frozen when the
+        // front arrives (afterwards the burned part's leftovers would skew them).
+        if (ci < 0.02) {
+          const mA0 = m - this.mF[c] - this.mP[c];
+          this.mxr[c] = this.mP[c];
+          this.mphi[c] = m * (mA0 > 0 ? this.mF[c] / mA0 * fuel.AFR : 9);
+        }
+        const xr = this.mxr[c] / m;
+        // |grad c| for a front moving toward lower c.
+        let gx = 0, gy = 0;
+        if (i > 0) { const d = (ci - cOld[c - NZ]) / g.dr; if (d < 0) gx = d * d; }
+        if (i + 1 < nr && act[c + NZ]) { const d = (cOld[c + NZ] - ci) / g.dr; if (d > 0) gx = Math.max(gx, d * d); }
+        if (j > 0 && act[c - 1]) { const d = (ci - cOld[c - 1]) / (0.5 * (dz[j] + dz[j - 1])); if (d < 0) gy = d * d; }
+        if (j + 1 < NZ && act[c + 1]) { const d = (cOld[c + 1] - ci) / (0.5 * (dz[j] + dz[j + 1])); if (d > 0) gy = Math.max(gy, d * d); }
+        let grad = Math.sqrt(gx + gy);
+        // Once the front has crossed the cell centre the rest of the cell burns out.
+        if (ci > 0.5) grad = Math.max(grad, (1 - ci) / Math.min(g.dr, dz[j]));
+        if (grad <= 0) continue;
+        const phi = this.mphi[c] / m;
+        const T = ci < 0.3 ? this.T[c] : Tu;
+        const Sl = psLaminarSpeed(fuel, phi, T, p0, xr);
+        if (Sl <= 0) continue;
+        // Quenching in thin gaps: Peclet number of about 3 per wall.
+        const alpha = psConductivity(T) / (this.rho[c] * this.cp[c]);
+        const dq = 3 * alpha / Sl;
+        const H = this.Hcol[i];
+        const fq = Math.min(1, Math.max(0, (H - 2 * dq) / (2 * dq)));
+        if (fq <= 0) continue;
+        const up = Math.sqrt(2 / 3 * this.k[c]);
+        const St = p.flameFactor * fq * Sl * (1 + 2.0 * fk * Math.pow(up / Sl, 0.7));
+        const dl = Math.min(g.dr, 0.5 * (dz[j] + (j + 1 < NZ ? dz[j + 1] : dz[j])));
+        SmaxDl = Math.max(SmaxDl, St / Math.min(dl, dz[j]));
+        const dc = Math.min(1 - ci, St * grad * dt);
+        if (dc <= 0) continue;
+        const f = dc / (1 - ci);
+        burnedStep += burnCell(c, f);
+        this.mc[c] += m * dc;
+      }
+    }
+    // Spark kernel cell finishes quickly.
+    // Post flame oxidation of leftovers that meet air in hot burned gas.
+    for (let c = 0; c < N; c++) {
+      if (!act[c] || this.c[c] < 0.5 || this.T[c] < 1300) continue;
+      const k = this.k[c], L = this.tmpL ? this.tmpL[c] : 1e-3;
+      const eps = 0.1643 * Math.pow(k, 1.5) / Math.max(L, 5e-5);
+      const rate = 4 * eps / k + 300;
+      burnedStep += burnCell(c, Math.min(1, rate * dt));
+    }
+    // End gas autoignition (knock).
+    const pos = posNew;
+    for (let c = 0; c < N; c++) {
+      if (!act[c]) continue;
+      const mA = this.m[c] - this.mF[c] - this.mP[c];
+      const phiK = mA > 0 ? this.mF[c] / mA * fuel.AFR : 9;
+      if (this.c[c] < 0.05 && phiK > fuel.phiMin && phiK < fuel.phiMax && this.T[c] > 600) {
+        const tau = psIgnitionDelay(p.octane, p0, this.T[c]);
+        this.mik[c] += this.m[c] * dt / tau;
+        if (this.mik[c] >= this.m[c]) {
+          if (!st.knockCa) {
+            st.knockCa = this.ca;
+            let Tb = 0, mb = 0;
+            for (let d = 0; d < N; d++) if (act[d] && this.c[d] > 0.5) { Tb += this.m[d] * this.T[d]; mb += this.m[d]; }
+            const Tk = mb > 0 ? Tb / mb : this.T[c];
+            st.knockFreq = psKnockFrequency(p.bore, Tk, 1.27, PS_PROD.R);
+          }
+          // Volumetric explosion: the whole pocket burns within ~20 us.
+          const ci = this.c[c];
+          const dc = (1 - ci) * Math.min(1, dt / 2e-5);
+          const b = burnCell(c, dc / (1 - ci));
+          st.knockFrac += b;
+          burnedStep += b;
+          this.mc[c] += this.m[c] * dc;
+        }
+      }
+    }
+    for (let c = 0; c < N; c++) if (act[c]) {
+      qStep += q[c];
+      const qv = q[c] / (dt * Math.max(this.V[c], 1e-15));
+      this.flame[c] = Math.max(qv, this.flame[c] * Math.exp(-dt / 3e-4));
+    }
+    st.qComb += qStep; st.fuelBurned += burnedStep;
+    this.qStep = qStep;
+    this.frontLimit = SmaxDl;
+  }
+
+  sparkCell() {
+    const g = this.g, c0 = this.roofCell(0);
+    if (c0 < 0) return -1;
+    const y = this.yTop[c0] + Math.min(0.003, 0.35 * this.Hcol[0]);
+    return this.cellAt(0.3 * g.dr, y);
+  }
+
+  // ------------------------------------------------------------ diagnostics
+
+  bookkeeping(posOld, posNew, dt) {
+    const p = this.p, g = this.g, st = this.stats, fuel = this.fuel;
+    // time step limits for the next step
+    const lims = [1e-4];
+    if (this.maxFluxRate > 0) lims.push(0.35 / this.maxFluxRate);
+    if (this.frontLimit > 0) lims.push(0.3 / this.frontLimit);
+    let umax = 0;
+    for (const q of this.parcels) umax = Math.max(umax, Math.abs(q.u) / g.dr, Math.abs(q.w) / Math.max(this.dz[g.nd] || 1e-3, 2e-4));
+    if (umax > 0) lims.push(0.8 / umax);
+    this.dtLimit = Math.min(...lims);
+
+    const degPerS = p.rpm * 6;
+    if (this.p0 > st.pMax) { st.pMax = this.p0; st.caPMax = this.ca; }
+    // squish velocity: mean radial velocity through the face at the recess edge
+    let usq = 0;
+    if (g.type !== 'plana') {
+      const iEdge = Math.max(0, Math.min(g.nr - 2, Math.round(g.rRec / g.dr) - 1));
+      let F = 0, A = 0;
+      for (let j = g.nd; j < g.nd + g.ng; j++) { const c = iEdge * g.NZ + j; F += this.Fe[c]; A += 2 * Math.PI * g.rw[iEdge + 1] * this.dz[j]; }
+      usq = A > 0 ? -F / A : 0;
+    }
+    this.usq = usq;
+    if (usq > st.sqMax) st.sqMax = usq;
+    const cyc = posNew >= 360 ? posNew - 720 : posNew;   // -360..360
+    // MFB from burned fuel against fuel available at ignition
+    const total = this.fuelAtSpark || 0;
+    const mfb = total > 0 ? st.fuelBurned / total : 0;
+    this.mfb = mfb;
+    for (const [k, lv] of [['mfb10', 0.1], ['mfb50', 0.5], ['mfb90', 0.9]]) if (st[k] === null && mfb >= lv) st[k] = cyc;
+    let film = this.filmTotal || 0, liq = 0;
+    for (const q of this.parcels) liq += q.n * fuel.rhoL * Math.PI * q.d ** 3 / 6;
+    liq += this.injAcc;               // injected but not yet released as a parcel
+    this.liquidTotal = liq;
+    st.filmMax = Math.max(st.filmMax, film); st.liquidMax = Math.max(st.liquidMax, liq);
+    // Events
+    const cross = (a) => (posOld < a && posNew >= a) || (posOld > posNew && (a >= posOld || a < posNew));
+    if (cross(540 + p.ivc)) {
+      st.massTrapped = this.totalMass();
+      let mP = 0, mF = 0;
+      for (let c = 0; c < g.N; c++) if (g.act[c]) { mP += this.mP[c]; mF += this.mF[c]; }
+      st.airTrapped = st.massTrapped - mP - mF;
+      st.residual = mP / st.massTrapped;
+      this.lastTrappedAir = st.airTrapped;
+      for (let c = 0; c < g.N; c++) this.mik[c] = 0;
+    }
+    if (cross((720 - p.spark) % 720)) {
+      let mF = 0;
+      for (let c = 0; c < g.N; c++) if (g.act[c]) mF += this.mF[c];
+      this.fuelAtSpark = mF + liq + film;
+      const fuelTot = mF + liq + film;
+      st.lambdaTrapped = fuelTot > 0 ? st.airTrapped / (fuelTot * fuel.AFR) : Infinity;
+      this.fuelAtSpark = fuelTot;
+    }
+    if (cross(180 - p.evo)) {
+      let mF = 0;
+      for (let c = 0; c < g.N; c++) if (g.act[c]) mF += this.mF[c];
+      st.hcEvo = this.fuelAtSpark > 0 ? (mF + liq + film) / this.fuelAtSpark : 0;
+    }
+    // Trace (every ~0.5 deg)
+    const tr = this.trace;
+    const last = tr.ca.length ? tr.ca[tr.ca.length - 1] : -1e9;
+    if (cyc - last >= 0.5 || cyc < last) {
+      let Tm = 0, M = 0, U = 0;
+      for (let c = 0; c < g.N; c++) if (g.act[c]) { Tm += this.m[c] * this.T[c]; M += this.m[c]; U += this.m[c] * this.k[c]; }
+      tr.ca.push(cyc); tr.p.push(this.p0); tr.V.push(this.Vtot);
+      tr.hrr.push(this.qStep / (dt * degPerS)); tr.mfb.push(mfb); tr.T.push(Tm / M);
+      tr.u.push(Math.sqrt(2 / 3 * U / M)); tr.usq.push(usq);
+      let vap = 0;
+      for (let c = 0; c < g.N; c++) if (g.act[c]) vap += this.mF[c];
+      tr.vap.push(vap); tr.liq.push(liq); tr.film.push(film); tr.burned.push(st.fuelBurned);
+    }
+    // Cycle boundary at gas exchange TDC
+    if (cross(360)) this.endCycle();
+  }
+
+  endCycle() {
+    const st = this.stats, p = this.p, fuel = this.fuel, g = this.g;
+    st.imep = st.work / g.Vd;
+    st.imepGross = st.workGross / g.Vd;
+    st.efficiency = st.fuelIn > 0 ? st.workGross / (st.fuelIn * fuel.LHV) : 0;
+    st.combustionEff = st.fuelIn > 0 ? st.qComb / (st.fuelIn * fuel.LHV) : 0;
+    const rhoRef = p.pIntake / (PS_AIR.R * p.tIntake);
+    st.volEff = st.airTrapped / (rhoRef * g.Vd);
+    st.cycle = this.cycleCount;
+    st.complete = this.trace.ca.length > 1000 && this.cycleCount > 0;
+    this.prevCycle = { stats: st, trace: this.trace };
+    if (st.complete || this.cycleCount > 0) this.history.push(st);
+    if (this.history.length > 50) this.history.shift();
+    this.cycleCount++;
+    this.stats = this.newCycleStats();
+    this.trace = this.newTrace();
+    // New cycle: clear the flame state.
+    for (let c = 0; c < g.N; c++) { this.mc[c] = 0; this.flame[c] = 0; this.mik[c] = 0; }
+    this.ignited = false; this.knockActive = false; this.inj = null;
+    this.fuelAtSpark = 0;
+  }
+
+  // Advance by deg crank degrees or until the time budget (ms) runs out.
+  advance(deg, budgetMs) {
+    const t0 = (typeof performance !== 'undefined' ? performance : Date).now();
+    const target = this.ca + deg;
+    let steps = 0;
+    while (this.ca < target) {
+      this.step(); steps++;
+      if (budgetMs && (steps & 3) === 0 && (typeof performance !== 'undefined' ? performance : Date).now() - t0 > budgetMs) break;
+    }
+    return steps;
+  }
+
+  cycleAngle() { const pos = this.cyclePos(this.ca); return pos >= 360 ? pos - 720 : pos; }
+
+  stroke() {
+    const pos = this.cyclePos(this.ca);
+    return pos < 180 ? 'Expansión' : pos < 360 ? 'Escape' : pos < 540 ? 'Admisión' : 'Compresión';
+  }
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    PS_FUELS, PS_DEFAULTS, PS_RESOLUTIONS, PS_AIR, PS_PROD, PS_ATM, PS_RU, PSCylinder, psBuildGeometry, psPiston,
+    psOrifice, psLaminarSpeed, psIgnitionDelay, psKnockFrequency, psSquishEstimate, psBandCholesky, psBandSolve, psTridiag,
+  };
+}
+/* END Piston-Sim-Physics.js */
+</script>
+<script>
+/* BEGIN Piston-Sim-UI.js */
+/* Piston-Sim-UI.js
+ * Page for Piston-Sim-Physics.js: the cylinder section, the plots, the
+ * readouts and the controls. Plain DOM and canvas, no libraries.
+ */
+'use strict';
+
+const PSUI = (() => {
+  const $ = (s, el = document) => el.querySelector(s);
+  const h = (tag, attrs, ...kids) => {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (k === 'class') el.className = v;
+      else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+      else if (v !== false && v != null) el.setAttribute(k, v === true ? '' : v);
+    }
+    for (const kid of kids.flat()) if (kid != null) el.append(kid.nodeType ? kid : document.createTextNode(kid));
+    return el;
+  };
+  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const mix = (c1, c2, t) => [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)];
+
+  const PRESETS = [
+    { id: 'puerto', name: 'Inyección en el puerto', meta: 'λ 1 · mezcla homogénea', params: {} },
+    { id: 'directa', name: 'Inyección directa', meta: 'inyecta en la admisión', params: { injection: 'directa', diSoi: 300 } },
+    { id: 'estratificada', name: 'Carga estratificada', meta: 'λ 1.4 · inyección tardía', params: { injection: 'directa', diSoi: 125, lambda: 1.4, pIntake: 1.0e5, spark: 16 } },
+    { id: 'knock', name: 'Golpe (knock)', meta: 'RC 12.5 · avance 38°', params: { cr: 12.5, spark: 38, octane: 87 } },
+    { id: 'pobre', name: 'Mezcla pobre', meta: 'λ 1.5 · avance 30°', params: { lambda: 1.5, spark: 30 } },
+    { id: 'parcial', name: 'Carga parcial', meta: '0.45 bar · 1500 rpm', params: { pIntake: 0.45e5, rpm: 1500, spark: 32 } },
+    { id: 'squish', name: 'Sin squish', meta: 'cámara plana', params: { chamber: 'plana', spark: 24 } },
+    { id: 'etanol', name: 'Etanol', meta: 'RC 12', params: { fuel: 'etanol', cr: 12 } },
+    { id: 'gnc', name: 'GNC (metano)', meta: 'gas, sin gotas', params: { fuel: 'metano', spark: 20 } },
+  ];
+
+  const FIELDS = {
+    temperatura: { label: 'Temperatura', unit: 'K', min: 300, max: 2800 },
+    velocidad: { label: 'Velocidad', unit: 'm/s', min: 0, max: 30 },
+    turbulencia: { label: "Turbulencia u'", unit: 'm/s', min: 0, max: 12 },
+    dosado: { label: 'Dosado φ', unit: '', min: 0, max: 2 },
+    swirl: { label: 'Swirl', unit: 'm/s', min: -15, max: 15 },
+  };
+
+  const pct = v => `${Math.round(v * 100)} %`;
+  const GROUPS = [
+    {
+      title: 'Operación', hint: 'Cambian en vivo.', items: [
+        { key: 'rpm', label: 'Régimen', min: 800, max: 7000, step: 50, fmt: v => `${v} rpm` },
+        { key: 'pIntake', label: 'Presión de admisión', min: 0.3e5, max: 1.8e5, step: 0.01e5, fmt: v => `${(v / 1e5).toFixed(2)} bar` },
+        { key: 'lambda', label: 'Lambda (λ)', min: 0.6, max: 2.2, step: 0.01, fmt: v => v.toFixed(2) },
+        { key: 'spark', label: 'Avance de encendido', min: 0, max: 55, step: 1, fmt: v => `${v}° APMS` },
+        { key: 'octane', label: 'Octanaje', min: 70, max: 125, step: 1, fmt: v => `${v}` },
+        { key: 'tIntake', label: 'Temp. de admisión', min: 260, max: 380, step: 1, fmt: v => `${Math.round(v - 273.15)} °C` },
+        { key: 'pExhaust', label: 'Presión de escape', min: 0.9e5, max: 2.0e5, step: 0.01e5, fmt: v => `${(v / 1e5).toFixed(2)} bar` },
+      ],
+    },
+    {
+      title: 'Inyección', hint: 'El combustible líquido se ve como gotas blancas y película celeste.', items: [
+        { key: 'injection', label: 'Tipo', options: [['puerto', 'En el puerto'], ['directa', 'Directa']] },
+        { key: 'diSoi', label: 'Inicio (directa)', min: 20, max: 360, step: 1, fmt: v => `${v}° APMS` },
+        { key: 'diPressure', label: 'Presión (directa)', min: 30e5, max: 350e5, step: 5e5, fmt: v => `${Math.round(v / 1e5)} bar` },
+        { key: 'diDrop', label: 'Gota media (directa)', min: 5e-6, max: 60e-6, step: 1e-6, fmt: v => `${Math.round(v * 1e6)} µm` },
+        { key: 'diCone', label: 'Ángulo del cono', min: 20, max: 140, step: 1, fmt: v => `${v}°` },
+        { key: 'pfiVapor', label: 'Vaporizado en el puerto', min: 0, max: 1, step: 0.01, fmt: pct },
+        { key: 'pfiDrop', label: 'Gota media (puerto)', min: 20e-6, max: 250e-6, step: 5e-6, fmt: v => `${Math.round(v * 1e6)} µm` },
+      ],
+    },
+    {
+      title: 'Válvulas y flujo', hint: 'Ángulos respecto del PMS de cruce (admisión) y del PMI (escape).', items: [
+        { key: 'ivo', label: 'Abre admisión', min: -30, max: 60, step: 1, fmt: v => `${v}° APMS` },
+        { key: 'ivc', label: 'Cierra admisión', min: 0, max: 100, step: 1, fmt: v => `${v}° DPMI` },
+        { key: 'evo', label: 'Abre escape', min: 0, max: 100, step: 1, fmt: v => `${v}° APMI` },
+        { key: 'evc', label: 'Cierra escape', min: -30, max: 60, step: 1, fmt: v => `${v}° DPMS` },
+        { key: 'ivLift', label: 'Alzada admisión', min: 0.003, max: 0.014, step: 0.0001, fmt: v => `${(v * 1000).toFixed(1)} mm` },
+        { key: 'swirl', label: 'Swirl del puerto', min: 0, max: 1.5, step: 0.01, fmt: v => v.toFixed(2) },
+        { key: 'jetAngle', label: 'Ángulo del chorro', min: 0, max: 75, step: 1, fmt: v => `${v}°` },
+      ],
+    },
+    {
+      title: 'Combustión y paredes', items: [
+        { key: 'flameFactor', label: 'Factor de llama', min: 0.3, max: 2.5, step: 0.01, fmt: v => `× ${v.toFixed(2)}` },
+        { key: 'heatTransfer', label: 'Transferencia de calor', min: 0, max: 2.5, step: 0.01, fmt: v => `× ${v.toFixed(2)}` },
+        { key: 'tHead', label: 'Temp. culata', min: 320, max: 650, step: 5, fmt: v => `${Math.round(v - 273.15)} °C` },
+        { key: 'tLiner', label: 'Temp. camisa', min: 320, max: 600, step: 5, fmt: v => `${Math.round(v - 273.15)} °C` },
+        { key: 'tPiston', label: 'Temp. pistón', min: 320, max: 700, step: 5, fmt: v => `${Math.round(v - 273.15)} °C` },
+      ],
+    },
+    {
+      title: 'Geometría y combustible', hint: 'Estos cambios reinician la simulación.', reset: true, items: [
+        { key: 'fuel', label: 'Combustible', options: Object.entries(PS_FUELS).map(([k, f]) => [k, f.label]) },
+        { key: 'bore', label: 'Diámetro', min: 0.06, max: 0.11, step: 0.0005, fmt: v => `${(v * 1000).toFixed(1)} mm` },
+        { key: 'stroke', label: 'Carrera', min: 0.05, max: 0.11, step: 0.0005, fmt: v => `${(v * 1000).toFixed(1)} mm` },
+        { key: 'rod', label: 'Biela', min: 0.1, max: 0.2, step: 0.001, fmt: v => `${(v * 1000).toFixed(0)} mm` },
+        { key: 'cr', label: 'Relación de compresión', min: 7, max: 16, step: 0.1, fmt: v => `${v.toFixed(1)} : 1` },
+        { key: 'chamber', label: 'Cámara', options: [['cupula', 'Cúpula en la culata'], ['bowl', 'Bowl en el pistón'], ['plana', 'Plana (sin squish)']] },
+        { key: 'squishClear', label: 'Huelgo de squish', min: 0.0005, max: 0.004, step: 0.0001, fmt: v => `${(v * 1000).toFixed(1)} mm` },
+        { key: 'squishFrac', label: 'Área de squish', min: 0.05, max: 0.75, step: 0.01, fmt: pct },
+        { key: 'resolution', label: 'Malla', options: [['rapida', 'Rápida'], ['normal', 'Normal'], ['fina', 'Fina']] },
+      ],
+    },
+  ];
+
+  // ------------------------------------------------------------ colours
+
+  const C_AIR = [38, 62, 96], C_MIX = [46, 128, 255], C_RICH = [96, 60, 240], C_GAS = [128, 132, 138];
+  const C_FLAME = [255, 138, 31], C_HOT = [255, 214, 110];
+  function compositionColor(sim, c, out, o, qRef) {
+    const m = sim.m[c], YF = sim.mF[c] / m, YP = sim.mP[c] / m, YA = Math.max(0, 1 - YF - YP);
+    const fresh = YA + YF;
+    const phi = YA > 1e-6 ? YF / YA * sim.fuel.AFR : 3;
+    let col = phi < 1 ? mix(C_AIR, C_MIX, Math.sqrt(clamp(phi, 0, 1))) : mix(C_MIX, C_RICH, clamp((phi - 1) / 1.2, 0, 1));
+    col = mix(col, C_GAS, clamp(1 - fresh, 0, 1));
+    // Reaction zone: heat release rate against this frame's strongest cells.
+    const q = sim.flame[c] / qRef;
+    if (q > 0.05) {
+      const a = clamp(Math.log10(q / 0.05) / 1.3, 0, 1);
+      col = mix(col, mix(C_FLAME, C_HOT, clamp(a * 1.6 - 0.8, 0, 1)), Math.min(1, a * 1.2));
+    }
+    out[o] = col[0]; out[o + 1] = col[1]; out[o + 2] = col[2];
+  }
+
+  // Perceptual dark-to-bright ramp (approximates "inferno").
+  const RAMP = [[8, 6, 24], [62, 12, 102], [140, 34, 104], [212, 72, 66], [248, 146, 22], [252, 232, 140]];
+  const DIVERGE = [[40, 90, 220], [70, 74, 82], [230, 120, 40]];
+  function ramp(t, stops) {
+    t = clamp(t, 0, 1) * (stops.length - 1);
+    const k = Math.min(stops.length - 2, Math.floor(t));
+    return mix(stops[k], stops[k + 1], t - k);
+  }
+  function fieldValue(sim, field, c) {
+    switch (field) {
+      case 'temperatura': return sim.T[c];
+      case 'velocidad': return Math.hypot(sim.u[c], sim.w[c]);
+      case 'turbulencia': return Math.sqrt(2 / 3 * sim.k[c]);
+      case 'dosado': { const m = sim.m[c], YF = sim.mF[c] / m, YA = 1 - YF - sim.mP[c] / m; return YA > 1e-6 ? YF / YA * sim.fuel.AFR : 2; }
+      case 'swirl': return sim.v[c];
+      default: return 0;
+    }
+  }
+  function fieldColor(sim, field, c, out, o) {
+    const f = FIELDS[field], v = fieldValue(sim, field, c);
+    const t = (v - f.min) / (f.max - f.min);
+    const col = field === 'swirl' || field === 'dosado' ? ramp(t, DIVERGE) : ramp(t, RAMP);
+    out[o] = col[0]; out[o + 1] = col[1]; out[o + 2] = col[2];
+  }
+
+  // ------------------------------------------------------------ app
+
+  class App {
+    constructor() {
+      this.preset = 'puerto';
+      this.params = Object.assign({}, PS_DEFAULTS);
+      this.sim = new PSCylinder(this.params);
+      this.running = true;
+      this.speed = 40;           // crank degrees per second of wall time
+      this.view = { field: 'temperatura', arrows: true, drops: true, front: true, zoom: true };
+      this.colL = null; this.colR = null;
+      this.last = performance.now();
+      this.simRate = 0;
+      this.build();
+      this.resize();
+      addEventListener('resize', () => this.resize());
+      requestAnimationFrame(t => this.frame(t));
+    }
+
+    build() {
+      const bar = $('#bar');
+      this.playBtn = h('button', { class: 'btn primary', onclick: () => this.toggle(), 'aria-pressed': 'true' }, 'Pausa');
+      const step = h('button', { class: 'btn', onclick: () => { this.running = false; this.updatePlay(); this.sim.advance(1, 200); this.draw(); }, title: 'Avanzar 1° (→)' }, '+1°');
+      const reset = h('button', { class: 'btn', onclick: () => this.reset() }, 'Reiniciar');
+      const speed = h('select', { class: 'sel', 'aria-label': 'Velocidad', onchange: e => { this.speed = +e.target.value; } },
+        [[10, '10 °/s'], [40, '40 °/s'], [120, '120 °/s'], [360, '360 °/s'], [1e6, 'Máxima']].map(([v, t]) => h('option', { value: v, selected: v === this.speed }, t)));
+      this.angleOut = h('span', { class: 'angle' });
+      bar.append(h('div', { class: 'brand' }, h('strong', {}, 'Pistón Lab'), h('span', {}, 'un cilindro, en detalle')),
+        h('div', { class: 'transport' }, this.playBtn, step, reset, speed), this.angleOut);
+      const list = $('#presets');
+      this.presetBtns = PRESETS.map(pr => h('button', {
+        class: 'preset', role: 'tab', 'aria-selected': pr.id === this.preset ? 'true' : 'false',
+        onclick: () => this.loadPreset(pr.id),
+      }, h('span', { class: 'preset-name' }, pr.name), h('span', { class: 'preset-meta' }, pr.meta)));
+      list.append(...this.presetBtns);
+
+      // view toolbar
+      const tools = $('#view-tools');
+      const fieldSel = h('select', { class: 'sel', 'aria-label': 'Campo de la derecha', onchange: e => { this.view.field = e.target.value; this.drawLegend(); } },
+        Object.entries(FIELDS).map(([k, f]) => h('option', { value: k, selected: k === this.view.field }, f.label)));
+      const chk = (key, label) => h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: this.view[key], onchange: e => { this.view[key] = e.target.checked; } }), label);
+      const zoom = h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: this.view.zoom, onchange: e => { this.view.zoom = e.target.checked; this.resize(); this.draw(); } }), 'Zoom en la cámara');
+      tools.append(h('span', { class: 'muted' }, 'Izquierda: composición · Derecha:'), fieldSel, chk('arrows', 'Flechas'), chk('drops', 'Gotas'), chk('front', 'Frente'), zoom);
+
+      this.cv = $('#cyl'); this.ctx = this.cv.getContext('2d');
+      this.off = document.createElement('canvas'); this.offCtx = this.off.getContext('2d');
+      this.plots = { p: $('#plot-p'), pv: $('#plot-pv'), hrr: $('#plot-hrr'), fuel: $('#plot-fuel') };
+      this.legend = $('#legend');
+      this.live = $('#live'); this.cycle = $('#cycle');
+      this.buildControls();
+      this.drawLegend();
+      addEventListener('keydown', e => {
+        if (e.target.closest && e.target.closest('input,select,textarea')) return;
+        if (e.code === 'Space') { e.preventDefault(); this.toggle(); }
+        if (e.code === 'ArrowRight') { e.preventDefault(); this.running = false; this.updatePlay(); this.sim.advance(1, 200); this.draw(); }
+      });
+    }
+
+    buildControls() {
+      const root = $('#controls-groups');
+      root.innerHTML = '';
+      this.inputs = {};
+      for (const grp of GROUPS) {
+        const box = h('section', { class: 'group' }, h('h2', {}, grp.title), grp.hint ? h('p', { class: 'hint' }, grp.hint) : null);
+        for (const it of grp.items) {
+          const id = `in-${it.key}`;
+          let input, out = null;
+          const val = this.params[it.key] == null ? this.sim.p[it.key] : this.params[it.key];
+          if (it.options) {
+            input = h('select', { id }, it.options.map(([v, t]) => h('option', { value: v, selected: String(v) === String(val) }, t)));
+            input.addEventListener('change', () => this.change(it, input.value, grp.reset));
+          } else {
+            out = h('output', { for: id }, it.fmt(val));
+            input = h('input', { id, type: 'range', min: it.min, max: it.max, step: it.step, value: val });
+            input.addEventListener('input', () => { out.textContent = it.fmt(+input.value); if (!grp.reset) this.change(it, +input.value, false); });
+            input.addEventListener('change', () => { if (grp.reset) this.change(it, +input.value, true); });
+          }
+          this.inputs[it.key] = { input, out, it };
+          box.append(h('div', { class: 'row' }, h('label', { for: id }, it.label), input, out || h('span')));
+        }
+        root.append(box);
+      }
+    }
+
+    syncControls() {
+      for (const [key, { input, out, it }] of Object.entries(this.inputs)) {
+        const v = this.sim.p[key];
+        input.value = v;
+        if (out) out.textContent = it.fmt(+v);
+      }
+    }
+
+    change(it, value, needsReset) {
+      this.params[it.key] = value;
+      if (it.key === 'fuel') this.params.octane = null;
+      if (needsReset) this.reset();
+      else this.sim.setParam(it.key, value);
+    }
+
+    loadPreset(id) {
+      const pr = PRESETS.find(x => x.id === id);
+      this.preset = id;
+      this.params = Object.assign({}, PS_DEFAULTS, pr.params);
+      this.presetBtns.forEach((b, k) => b.setAttribute('aria-selected', PRESETS[k].id === id ? 'true' : 'false'));
+      this.reset();
+    }
+
+    reset() {
+      this.sim = new PSCylinder(Object.assign({}, this.params));
+      this.colL = this.colR = null;
+      this.syncControls();
+      this.resize();
+      this.draw();
+    }
+
+    toggle() { this.running = !this.running; this.updatePlay(); }
+    updatePlay() { this.playBtn.textContent = this.running ? 'Pausa' : 'Seguir'; this.playBtn.setAttribute('aria-pressed', String(this.running)); }
+
+    frame(t) {
+      const dtw = Math.min(0.1, (t - this.last) / 1000);
+      this.last = t;
+      if (this.running) {
+        const ca0 = this.sim.ca;
+        this.sim.advance(Math.max(0.05, this.speed * dtw), 14);
+        const rate = (this.sim.ca - ca0) / Math.max(dtw, 1e-3);
+        this.simRate = lerp(this.simRate, rate, 0.05);
+      }
+      this.draw();
+      requestAnimationFrame(tt => this.frame(tt));
+    }
+
+    // ---------------------------------------------------------- layout
+
+    resize() {
+      const cv = this.cv, sim = this.sim, g = sim.g, p = sim.p;
+      const wrap = cv.parentElement;
+      const cssW = Math.max(280, Math.min(wrap.clientWidth, 760));
+      // Physical window: head to a little below the piston at BDC, or just the chamber.
+      const head = this.view.zoom ? 0.008 : 0.02, wall = 0.009;
+      const yMin = -(g.nd * g.dzRec) - head;
+      const yMax = this.view.zoom ? g.hTdc + g.nb * g.dzRec + Math.max(0.3 * p.stroke, 0.012) : g.hTdc + p.stroke + 0.62 * p.bore;
+      const wPhys = p.bore + 2 * wall + 0.012, hPhys = yMax - yMin;
+      const s = Math.min(cssW / wPhys, (this.view.zoom ? 520 : 680) / hPhys);
+      const cssH = Math.round(hPhys * s);
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      cv.style.width = `${Math.round(wPhys * s)}px`; cv.style.height = `${cssH}px`;
+      cv.width = Math.round(wPhys * s * dpr); cv.height = Math.round(cssH * dpr);
+      this.L = { s, dpr, yMin, yMax, wall, head, cx: wPhys * s / 2, W: wPhys * s, H: cssH };
+      for (const pc of Object.values(this.plots)) {
+        const w = pc.parentElement.clientWidth || 300, hh = pc.dataset.h ? +pc.dataset.h : 150;
+        pc.style.width = `${w}px`; pc.style.height = `${hh}px`;
+        pc.width = Math.round(w * dpr); pc.height = Math.round(hh * dpr);
+      }
+    }
+
+    X(r) { return this.L.cx + r * this.L.s; }
+    Y(y) { return (y - this.L.yMin) * this.L.s; }
+
+    // ---------------------------------------------------------- drawing
+
+    draw() {
+      const sim = this.sim;
+      this.drawCylinder();
+      this.drawPlots();
+      this.drawReadouts();
+      const pos = sim.cycleAngle();
+      const fmtA = pos >= 0 ? `${pos.toFixed(0)}° DPMS` : `${(-pos).toFixed(0)}° APMS`;
+      const rate = this.running ? ` · ${this.simRate < 1 ? this.simRate.toFixed(1) : Math.round(this.simRate)} °/s` : ' · en pausa';
+      this.angleOut.textContent = `${sim.stroke()} · ${fmtA}${rate}`;
+    }
+
+    drawCylinder() {
+      const { ctx, sim, L } = this, g = sim.g, p = sim.p, s = L.s, dpr = L.dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, L.W, L.H);
+      const R = g.R, X = r => this.X(r), Y = y => this.Y(y);
+      const metal = '#3a4047', metalDark = '#2a2f35', metalEdge = '#59616a';
+      // Liner
+      const yLinerEnd = g.hTdc + p.stroke + 0.62 * p.bore;
+      ctx.fillStyle = metal;
+      ctx.fillRect(X(-R - L.wall), Y(0), L.wall * s, (yLinerEnd) * s);
+      ctx.fillRect(X(R), Y(0), L.wall * s, (yLinerEnd) * s);
+      // Coolant passages
+      ctx.fillStyle = '#16303f';
+      ctx.fillRect(X(-R - L.wall * 0.7), Y(0.004), L.wall * 0.35 * s, (p.stroke * 0.7) * s);
+      ctx.fillRect(X(R + L.wall * 0.35), Y(0.004), L.wall * 0.35 * s, (p.stroke * 0.7) * s);
+      // Head block
+      const yHeadTop = L.yMin;
+      ctx.fillStyle = metal;
+      ctx.fillRect(X(-R - L.wall), Y(yHeadTop), (2 * R + 2 * L.wall) * s, (-yHeadTop) * s);
+      // Piston
+      const yc = sim.h, ph = 0.6 * p.bore;
+      const grad = ctx.createLinearGradient(X(-R), 0, X(R), 0);
+      grad.addColorStop(0, '#4d555d'); grad.addColorStop(0.5, '#7b848d'); grad.addColorStop(1, '#4d555d');
+      ctx.fillStyle = grad;
+      ctx.fillRect(X(-R + 0.0002), Y(yc), (2 * R - 0.0004) * s, ph * s);
+      ctx.fillStyle = metalDark;
+      for (let k = 0; k < 3; k++) ctx.fillRect(X(-R + 0.0002), Y(yc + 0.003 + k * 0.0035), (2 * R - 0.0004) * s, Math.max(1, 0.0012 * s));
+      // Pin and rod
+      const pinY = yc + 0.36 * p.bore, pinR = 0.11 * p.bore;
+      const a = p.stroke / 2, th = sim.ca * Math.PI / 180;
+      const rodAng = Math.asin(a * Math.sin(th) / p.rod);
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0, Y(yc + 0.12 * p.bore), L.W, L.H); ctx.clip();
+      ctx.strokeStyle = '#8a939c'; ctx.lineWidth = 0.22 * p.bore * s; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(X(0), Y(pinY)); ctx.lineTo(X(0) + Math.sin(rodAng) * p.rod * s, Y(pinY) + Math.cos(rodAng) * p.rod * s); ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = '#9aa3ac'; ctx.beginPath(); ctx.arc(X(0), Y(pinY), pinR * s, 0, 2 * Math.PI); ctx.fill();
+      ctx.fillStyle = metalDark; ctx.beginPath(); ctx.arc(X(0), Y(pinY), pinR * 0.55 * s, 0, 2 * Math.PI); ctx.fill();
+
+      // Gas
+      this.drawGas();
+
+      // Wall film
+      if (sim.fuel.liquid) {
+        ctx.fillStyle = 'rgba(150, 225, 255, 0.95)';
+        for (let c = 0; c < g.N; c++) {
+          const fm = sim.film[c];
+          if (!g.act[c] || fm < 2e-9) continue;
+          const i = (c / g.NZ) | 0, j = c % g.NZ;
+          const th2 = clamp(1 + Math.log10(fm / 2e-9) * 1.2, 1, 4);
+          const y0 = sim.yTop[j], y1 = y0 + sim.dz[j];
+          const wtype = sim.filmWall[c];
+          for (const sg of [-1, 1]) {
+            if (wtype === 1 || (wtype === 2 && i + 1 < g.nr && !g.act[c + g.NZ] && sim.g.rowType[j] !== 1)) {
+              const xr = sg > 0 ? X(g.rw[i + 1]) - th2 : X(-g.rw[i + 1]);
+              ctx.fillRect(xr, Y(y0), th2, sim.dz[j] * s);
+            } else {
+              const yy = wtype === 0 ? Y(y0) : Y(y1) - th2;
+              const xa = sg > 0 ? X(g.rw[i]) : X(-g.rw[i + 1]);
+              ctx.fillRect(xa, yy, g.dr * s, th2);
+            }
+          }
+        }
+      }
+      // Droplets
+      if (this.view.drops && sim.parcels.length) {
+        ctx.fillStyle = 'rgba(240, 248, 255, 0.9)';
+        for (const q of sim.parcels) {
+          const rad = clamp(q.d * 1e6 * 0.045, 0.7, 4);
+          for (const sg of [-1, 1]) {
+            ctx.beginPath(); ctx.arc(X(sg * q.r), Y(q.y), rad, 0, 2 * Math.PI); ctx.fill();
+          }
+        }
+      }
+      // Flame front: edges between burned (c >= 0.5) and fresh cells
+      if (this.view.front && (sim.ignited || sim.stats.knockCa)) {
+        ctx.strokeStyle = 'rgba(255, 236, 160, 0.9)'; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (let i = 0; i < g.nr; i++) for (let j = 0; j < g.NZ; j++) {
+          const c = i * g.NZ + j;
+          if (!g.act[c]) continue;
+          const b = sim.c[c] >= 0.5;
+          if (i + 1 < g.nr && g.act[c + g.NZ] && (sim.c[c + g.NZ] >= 0.5) !== b && sim.mF[b ? c + g.NZ : c] > 1e-4 * sim.m[c]) {
+            for (const sg of [-1, 1]) { ctx.moveTo(X(sg * g.rw[i + 1]), Y(sim.yTop[j])); ctx.lineTo(X(sg * g.rw[i + 1]), Y(sim.yTop[j] + sim.dz[j])); }
+          }
+          if (j + 1 < g.NZ && g.act[c + 1] && (sim.c[c + 1] >= 0.5) !== b && sim.mF[b ? c + 1 : c] > 1e-4 * sim.m[c]) {
+            const y = Y(sim.yTop[j + 1]);
+            for (const sg of [-1, 1]) { ctx.moveTo(X(sg * g.rw[i]), y); ctx.lineTo(X(sg * g.rw[i + 1]), y); }
+          }
+        }
+        ctx.stroke();
+      }
+      // Velocity arrows
+      if (this.view.arrows) this.drawArrows();
+
+      // Valves
+      this.drawValve(g.inR, sim.liftIn || 0, '#6c8fb3', p.ivDiam);
+      this.drawValve(g.exR, sim.liftEx || 0, '#b37a6c', p.evDiam);
+      // Spark plug
+      const c0 = sim.roofCell(0);
+      const roofY = sim.yTop[c0];
+      const sparkY = roofY + Math.min(0.003, 0.35 * sim.Hcol[0]);
+      ctx.fillStyle = '#c9ced3';
+      ctx.fillRect(X(-0.0009), Y(roofY) - 2, 0.0018 * s, (sparkY - roofY) * s + 2);
+      ctx.fillRect(X(-0.0026), Y(sparkY) - 1, 0.0052 * s * 0.5, Math.max(2, 0.0006 * s));
+      ctx.fillStyle = '#e8e2d0'; ctx.fillRect(X(-0.002), Y(yHeadTop), 0.004 * s, (roofY - yHeadTop) * s);
+      if (sim.sparking || (sim.ignited && sim.stats.ignitionCa != null && sim.ca - sim.stats.ignitionCa < 3)) {
+        const gx = X(0), gy = Y(sparkY + 0.0006);
+        const rg = ctx.createRadialGradient(gx, gy, 0, gx, gy, 0.006 * s);
+        rg.addColorStop(0, 'rgba(255,255,255,1)'); rg.addColorStop(0.3, 'rgba(160,190,255,0.7)'); rg.addColorStop(1, 'rgba(120,150,255,0)');
+        ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(gx, gy, 0.006 * s, 0, 2 * Math.PI); ctx.fill();
+      }
+      // Injector
+      if (p.injection === 'directa') {
+        ctx.fillStyle = '#9fb0bf';
+        ctx.fillRect(X(0.0028), Y(yHeadTop), 0.0022 * s, (roofY - yHeadTop) * s + 1);
+        ctx.fillStyle = sim.inj && sim.inj.left > 0 ? '#d6f1ff' : '#5f6f7d';
+        ctx.fillRect(X(0.0030), Y(roofY) - 1, 0.0018 * s, 3);
+      }
+      // Labels
+      ctx.font = '600 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#c7ced4';
+      if (!this.view.zoom || true) ctx.textBaseline = 'alphabetic';
+      ctx.fillText('ADM', X(g.inR), Y(yHeadTop) + 13); ctx.fillText('ADM', X(-g.inR), Y(yHeadTop) + 13);
+      ctx.fillText('ESC', X(g.exR), Y(yHeadTop) + 13); ctx.fillText('ESC', X(-g.exR), Y(yHeadTop) + 13);
+      // Crank inset
+      this.drawCrankInset();
+    }
+
+    drawValve(r, lift, color, diamFrac) {
+      const { ctx, sim, L } = this, g = sim.g, s = L.s;
+      const X = rr => this.X(rr), Y = y => this.Y(y);
+      const i = Math.min(g.nr - 1, Math.floor(r / g.dr));
+      const roof = sim.yTop[sim.roofCell(i) % g.NZ];
+      const halfW = Math.min(0.12 * g.R, 0.25 * diamFrac * g.B);
+      for (const sg of [-1, 1]) {
+        const x0 = X(sg * r);
+        ctx.fillStyle = color;
+        // stem
+        ctx.fillRect(x0 - 0.0011 * s, Y(L.yMin), 0.0022 * s, (roof + lift - L.yMin) * s);
+        // head
+        ctx.beginPath();
+        ctx.moveTo(x0 - halfW * s, Y(roof + lift));
+        ctx.lineTo(x0 + halfW * s, Y(roof + lift));
+        ctx.lineTo(x0 + 0.0014 * s, Y(roof + lift - 0.0025));
+        ctx.lineTo(x0 - 0.0014 * s, Y(roof + lift - 0.0025));
+        ctx.closePath(); ctx.fill();
+        if (lift > 1e-4) {
+          ctx.fillStyle = 'rgba(20, 24, 28, 0.9)';
+          ctx.fillRect(x0 - halfW * s, Y(roof) - 1, 2 * halfW * s, Math.max(1, lift * s * 0.15));
+        }
+      }
+    }
+
+    drawCrankInset() {
+      const { ctx, sim, L } = this;
+      const r = 26, cx = 12 + r, cy = L.H - 12 - r;
+      ctx.fillStyle = 'rgba(14,16,18,0.85)'; ctx.beginPath(); ctx.arc(cx, cy, r + 6, 0, 2 * Math.PI); ctx.fill();
+      ctx.strokeStyle = '#59616a'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.stroke();
+      const th = sim.ca * Math.PI / 180;
+      ctx.strokeStyle = '#ff7a1a'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.sin(th) * r * 0.8, cy - Math.cos(th) * r * 0.8); ctx.stroke();
+      ctx.fillStyle = '#c7ced4'; ctx.font = '10px system-ui, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('PMS', cx, cy - r - 8 < 8 ? 8 : cy - r - 9);
+    }
+
+    drawGas() {
+      const { sim, L } = this, g = sim.g, N = g.N, NZ = g.NZ;
+      if (!this.colL || this.colL.length !== N * 3) { this.colL = new Float32Array(N * 3); this.colR = new Float32Array(N * 3); }
+      let qMax = 0;
+      for (let c = 0; c < N; c++) if (g.act[c] && sim.flame[c] > qMax) qMax = sim.flame[c];
+      const qRef = Math.max(5e9, 0.6 * qMax);
+      for (let c = 0; c < N; c++) {
+        if (!g.act[c]) continue;
+        compositionColor(sim, c, this.colL, c * 3, qRef);
+        fieldColor(sim, this.view.field, c, this.colR, c * 3);
+        if (sim.mik[c] > 0.7 * sim.m[c] && sim.c[c] < 0.5 && sim.mF[c] > 1e-3 * sim.m[c]) {
+          // end gas close to autoignition glows red
+          const t = clamp((sim.mik[c] / sim.m[c] - 0.7) / 0.3, 0, 1);
+          for (const arr of [this.colL]) { arr[c * 3] = lerp(arr[c * 3], 255, t); arr[c * 3 + 1] = lerp(arr[c * 3 + 1], 40, t); arr[c * 3 + 2] = lerp(arr[c * 3 + 2], 40, t); }
+        }
+      }
+      // Render at half resolution then scale with smoothing.
+      const s = L.s, k = 0.5;
+      const yTop = sim.yTop[0], yBot = sim.yTop[NZ];
+      const wpx = Math.max(2, Math.round(2 * g.R * s * k)), hpx = Math.max(2, Math.round((yBot - yTop) * s * k));
+      if (this.off.width !== wpx || this.off.height !== hpx) { this.off.width = wpx; this.off.height = hpx; this.img = this.offCtx.createImageData(wpx, hpx); }
+      const img = this.img, data = img.data;
+      // Row centres
+      const ycs = this.ycs && this.ycs.length === NZ ? this.ycs : (this.ycs = new Float64Array(NZ));
+      for (let j = 0; j < NZ; j++) ycs[j] = sim.yTop[j] + 0.5 * sim.dz[j];
+      const half = wpx / 2;
+      const colI = this.colI && this.colI.length === wpx ? this.colI : (this.colI = new Int32Array(wpx));
+      const colF = this.colF && this.colF.length === wpx ? this.colF : (this.colF = new Float32Array(wpx));
+      const colC = this.colC && this.colC.length === wpx ? this.colC : (this.colC = new Int32Array(wpx));
+      for (let x = 0; x < wpx; x++) {
+        const r = Math.abs((x + 0.5 - half) / (s * k));
+        const u = r / g.dr - 0.5;
+        const i0 = Math.floor(u);
+        colI[x] = i0; colF[x] = u - i0; colC[x] = Math.min(g.nr - 1, Math.floor(r / g.dr));
+      }
+      let jRow = 0;
+      for (let y = 0; y < hpx; y++) {
+        const yy = yTop + (y + 0.5) / (s * k);
+        while (jRow < NZ - 1 && sim.yTop[jRow + 1] <= yy) jRow++;
+        let j0 = 0;
+        while (j0 < NZ - 1 && ycs[j0 + 1] <= yy) j0++;
+        let fy = (yy - ycs[j0]) / ((j0 + 1 < NZ ? ycs[j0 + 1] : ycs[j0] + 1) - ycs[j0]);
+        if (yy < ycs[0]) fy = 0;
+        fy = clamp(fy, 0, 1);
+        for (let x = 0; x < wpx; x++) {
+          const o = (y * wpx + x) * 4;
+          const cc = colC[x] * NZ + jRow;
+          if (!g.act[cc]) { data[o + 3] = 0; continue; }
+          const arr = x < half ? this.colL : this.colR;
+          let i0 = colI[x], fx = colF[x];
+          if (i0 < 0) { i0 = 0; fx = 0; }
+          let rr = 0, gg = 0, bb = 0, ww = 0;
+          for (let di = 0; di < 2; di++) for (let dj = 0; dj < 2; dj++) {
+            const ii = i0 + di, jj = j0 + dj;
+            if (ii >= g.nr || jj >= NZ) continue;
+            const c = ii * NZ + jj;
+            if (!g.act[c]) continue;
+            const wgt = (di ? fx : 1 - fx) * (dj ? fy : 1 - fy) + 1e-6;
+            rr += wgt * arr[c * 3]; gg += wgt * arr[c * 3 + 1]; bb += wgt * arr[c * 3 + 2]; ww += wgt;
+          }
+          if (ww <= 0) { const c = cc; rr = arr[c * 3]; gg = arr[c * 3 + 1]; bb = arr[c * 3 + 2]; ww = 1; }
+          data[o] = rr / ww; data[o + 1] = gg / ww; data[o + 2] = bb / ww; data[o + 3] = 255;
+        }
+      }
+      this.offCtx.putImageData(img, 0, 0);
+      const ctx = this.ctx;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(this.off, this.X(-g.R), this.Y(yTop), 2 * g.R * s, (yBot - yTop) * s);
+      // Divider on the axis
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.setLineDash([3, 4]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(this.X(0), this.Y(yTop)); ctx.lineTo(this.X(0), this.Y(yBot)); ctx.stroke(); ctx.setLineDash([]);
+    }
+
+    drawArrows() {
+      const { ctx, sim, L } = this, g = sim.g, s = L.s;
+      const step = 17;
+      const yTop = sim.yTop[0], yBot = sim.yTop[g.NZ];
+      ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let py = this.Y(yTop) + step / 2; py < this.Y(yBot); py += step) {
+        const y = (py / s) + L.yMin;
+        for (let px = L.cx + step / 2; px < this.X(g.R); px += step) {
+          const r = (px - L.cx) / s;
+          const c = sim.cellAt(r, y);
+          if (c < 0) continue;
+          const u = sim.u[c], w = sim.w[c], sp = Math.hypot(u, w);
+          if (sp < 0.3) continue;
+          const len = Math.min(step * 0.9, 2.5 + sp * 0.8), ux = u / sp, uy = w / sp;
+          for (const sg of [-1, 1]) {
+            const x0 = L.cx + sg * (px - L.cx), dx = sg * ux;
+            const x1 = x0 + dx * len, y1 = py + uy * len;
+            ctx.moveTo(x0, py); ctx.lineTo(x1, y1);
+            ctx.moveTo(x1, y1); ctx.lineTo(x1 - dx * 3 - uy * 2, y1 - uy * 3 + dx * 2);
+            ctx.moveTo(x1, y1); ctx.lineTo(x1 - dx * 3 + uy * 2, y1 - uy * 3 - dx * 2);
+          }
+        }
+      }
+      ctx.stroke();
+    }
+
+    drawLegend() {
+      const f = FIELDS[this.view.field];
+      const stops = this.view.field === 'swirl' || this.view.field === 'dosado' ? DIVERGE : RAMP;
+      const css = stops.map((c, k) => `rgb(${c.map(Math.round).join(',')}) ${Math.round(k / (stops.length - 1) * 100)}%`).join(',');
+      this.legend.innerHTML = '';
+      const sw = (col, label) => h('span', { class: 'sw' }, h('i', { style: `background:${col}` }), label);
+      this.legend.append(
+        h('div', { class: 'legend-row' }, h('strong', {}, 'Composición'),
+          sw('rgb(46,128,255)', 'mezcla'), sw('rgb(96,60,240)', 'rica'), sw('rgb(38,62,96)', 'aire'),
+          sw('rgb(128,132,138)', 'gases quemados'), sw('rgb(255,138,31)', 'llama'), sw('rgb(240,248,255)', 'gotas'), sw('rgb(150,225,255)', 'película')),
+        h('div', { class: 'legend-row' }, h('strong', {}, f.label),
+          h('span', { class: 'bar-scale' }, h('i', { style: `background:linear-gradient(90deg,${css})` }),
+            h('span', {}, `${f.min}`), h('span', {}, `${f.max} ${f.unit}`))));
+    }
+
+    // ---------------------------------------------------------- plots
+
+    plotFrame(cv, xr, yr, opts) {
+      const ctx = cv.getContext('2d'), dpr = this.L.dpr;
+      const W = cv.width / dpr, H = cv.height / dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+      const m = { l: 40, r: 8, t: 18, b: 22 };
+      const pw = W - m.l - m.r, ph = H - m.t - m.b;
+      const tx = opts.logX ? v => m.l + (Math.log(v) - Math.log(xr[0])) / (Math.log(xr[1]) - Math.log(xr[0])) * pw : v => m.l + (v - xr[0]) / (xr[1] - xr[0]) * pw;
+      const ty = opts.logY ? v => m.t + ph - (Math.log(Math.max(v, yr[0])) - Math.log(yr[0])) / (Math.log(yr[1]) - Math.log(yr[0])) * ph : v => m.t + ph - (v - yr[0]) / (yr[1] - yr[0]) * ph;
+      ctx.strokeStyle = '#2c3237'; ctx.lineWidth = 1;
+      ctx.font = '10px system-ui, sans-serif'; ctx.fillStyle = '#8d969c';
+      ctx.textAlign = 'center';
+      for (const xv of opts.xTicks || []) { const x = tx(xv); ctx.beginPath(); ctx.moveTo(x, m.t); ctx.lineTo(x, m.t + ph); ctx.stroke(); ctx.fillText(opts.xFmt ? opts.xFmt(xv) : xv, x, H - 7); }
+      ctx.textAlign = 'right';
+      for (const yv of opts.yTicks || []) { const y = ty(yv); ctx.beginPath(); ctx.moveTo(m.l, y); ctx.lineTo(m.l + pw, y); ctx.stroke(); ctx.fillText(opts.yFmt ? opts.yFmt(yv) : yv, m.l - 4, y + 3); }
+      ctx.textAlign = 'left'; ctx.fillStyle = '#e6e8e9'; ctx.font = '600 11px system-ui, sans-serif';
+      ctx.fillText(opts.title, m.l, 12);
+      return { ctx, tx, ty, m, pw, ph, W, H };
+    }
+
+    line(fr, xs, ys, color, width, from, dash) {
+      const { ctx, tx, ty } = fr;
+      ctx.strokeStyle = color; ctx.lineWidth = width || 1.5; ctx.setLineDash(dash || []);
+      ctx.beginPath();
+      let pen = false, prevX = null;
+      for (let k = from || 0; k < xs.length; k++) {
+        const x = tx(xs[k]), y = ty(ys[k]);
+        if (!isFinite(x) || !isFinite(y)) { pen = false; continue; }
+        if (prevX !== null && xs[k] < prevX && !fr.allowBack) pen = false;
+        if (pen) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+        pen = true; prevX = xs[k];
+      }
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+
+    drawPlots() {
+      const sim = this.sim, tr = sim.trace, prev = sim.prevCycle ? sim.prevCycle.trace : null, p = sim.p;
+      const bar = v => v / 1e5;
+      // Pressure against crank angle
+      let pmax = 10;
+      for (const t of [tr, prev]) if (t) for (const v of t.p) pmax = Math.max(pmax, bar(v));
+      pmax = Math.ceil(pmax / 10) * 10;
+      {
+        const fr = this.plotFrame(this.plots.p, [-360, 360], [0, pmax], {
+          title: 'Presión en el cilindro (bar)', xTicks: [-360, -180, 0, 180, 360], yTicks: [0, pmax / 2, pmax],
+          xFmt: v => `${v}°`, yFmt: v => Math.round(v),
+        });
+        // valve events and spark
+        const { ctx, tx, m, ph } = fr;
+        const band = (a0, a1, col) => { ctx.fillStyle = col; ctx.fillRect(tx(a0), m.t, tx(a1) - tx(a0), ph); };
+        band(-360, -180 + p.ivc, 'rgba(108,143,179,0.10)'); band(360 - p.ivo, 360, 'rgba(108,143,179,0.10)');
+        band(180 - p.evo, 360, 'rgba(179,122,108,0.10)'); band(-360, -360 + p.evc, 'rgba(179,122,108,0.10)');
+        ctx.strokeStyle = 'rgba(160,190,255,0.8)'; ctx.setLineDash([2, 3]);
+        ctx.beginPath(); ctx.moveTo(tx(-p.spark), m.t); ctx.lineTo(tx(-p.spark), m.t + ph); ctx.stroke(); ctx.setLineDash([]);
+        if (prev) this.line(fr, prev.ca, prev.p.map(bar), 'rgba(255,122,26,0.3)', 1.2);
+        this.line(fr, tr.ca, tr.p.map(bar), '#ff7a1a', 1.8);
+        const x = tx(sim.cycleAngle());
+        ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.beginPath(); ctx.moveTo(x, m.t); ctx.lineTo(x, m.t + ph); ctx.stroke();
+      }
+      // p-V, log-log
+      {
+        const g = sim.g, vmin = g.Vc * 0.9, vmax = (g.Vc + g.Vd) * 1.1;
+        const fr = this.plotFrame(this.plots.pv, [vmin, vmax], [0.2, Math.max(pmax, 20)], {
+          title: 'Diagrama p–V (log)', logX: true, logY: true,
+          xTicks: [g.Vc, g.Vc + g.Vd], xFmt: v => `${(v * 1e6).toFixed(0)} cm³`, yTicks: [0.5, 1, 5, 10, 50].filter(v => v < Math.max(pmax, 20)), yFmt: v => v,
+        });
+        fr.allowBack = true;
+        if (prev) this.line(fr, prev.V, prev.p.map(bar), 'rgba(63,180,255,0.3)', 1.2);
+        this.line(fr, tr.V, tr.p.map(bar), '#3fb4ff', 1.8);
+        const { ctx, tx, ty } = fr;
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(tx(sim.Vtot), ty(bar(sim.p0)), 3, 0, 2 * Math.PI); ctx.fill();
+      }
+      // Heat release and burned fraction around TDC
+      {
+        let hmax = 10;
+        for (const t of [tr, prev]) if (t) for (let k = 0; k < t.ca.length; k++) if (t.ca[k] > -60 && t.ca[k] < 120) hmax = Math.max(hmax, t.hrr[k]);
+        hmax = Math.ceil(hmax / 10) * 10;
+        const fr = this.plotFrame(this.plots.hrr, [-60, 120], [0, hmax], {
+          title: 'Calor liberado (J/°) y fracción quemada', xTicks: [-60, -30, 0, 30, 60, 90, 120], yTicks: [0, hmax / 2, hmax],
+          xFmt: v => `${v}°`, yFmt: v => Math.round(v),
+        });
+        if (prev) this.line(fr, prev.ca, prev.hrr, 'rgba(255,138,31,0.3)', 1.2);
+        this.line(fr, tr.ca, tr.hrr, '#ff8a1f', 1.8);
+        const ty2 = v => fr.m.t + fr.ph - v * fr.ph;
+        const fr2 = Object.assign({}, fr, { ty: ty2 });
+        if (prev) this.line(fr2, prev.ca, prev.mfb, 'rgba(230,232,233,0.3)', 1.2, 0, [3, 3]);
+        this.line(fr2, tr.ca, tr.mfb, '#e6e8e9', 1.4, 0, [3, 3]);
+      }
+      // Fuel state
+      {
+        const t = tr;
+        let fmax = 1e-9;
+        for (const T of [tr, prev]) if (T) for (let k = 0; k < T.ca.length; k++) fmax = Math.max(fmax, T.vap[k] + T.liq[k] + T.film[k] + T.burned[k]);
+        const mg = v => v * 1e6;
+        const top = Math.max(1, Math.ceil(mg(fmax) / 5) * 5);
+        const fr = this.plotFrame(this.plots.fuel, [-360, 360], [0, top], {
+          title: 'Combustible (mg): vapor, líquido, película, quemado', xTicks: [-360, -180, 0, 180, 360], yTicks: [0, top / 2, top],
+          xFmt: v => `${v}°`, yFmt: v => +v.toFixed(1),
+        });
+        this.line(fr, t.ca, t.vap.map(mg), '#2e80ff', 1.6);
+        this.line(fr, t.ca, t.liq.map(mg), '#f0f8ff', 1.4);
+        this.line(fr, t.ca, t.film.map(mg), '#96e1ff', 1.4, 0, [4, 2]);
+        this.line(fr, t.ca, t.burned.map(mg), '#ff8a1f', 1.4);
+      }
+    }
+
+    // ---------------------------------------------------------- readouts
+
+    drawReadouts() {
+      const sim = this.sim, d = sim.diagnostics();
+      this.frameCount = (this.frameCount || 0) + 1;
+      if (this.frameCount % 6) return;
+      const f1 = v => v.toFixed(1), mg = v => `${(v * 1e6).toFixed(2)} mg`;
+      const lam = isFinite(d.lambda) ? d.lambda.toFixed(2) : '—';
+      const rows = [
+        ['Presión', `${(d.p / 1e5).toFixed(2)} bar`],
+        ['Temperatura media', `${Math.round(d.T)} K`],
+        ['Gas fresco / quemado', `${Math.round(d.Tu)} / ${d.Tb ? Math.round(d.Tb) + ' K' : '—'}`],
+        ['Masa en el cilindro', mg(d.M)],
+        ['λ en el cilindro', lam],
+        ['Gases quemados', `${(d.residual * 100).toFixed(1)} % de la masa`],
+        ['Fracción quemada', `${(d.mfb * 100).toFixed(0)} %`],
+        ["Turbulencia u'", `${f1(d.u)} m/s`],
+        ['Velocidad de squish', `${f1(d.usq)} m/s`],
+        ['Relación de swirl', d.swirl.toFixed(2)],
+        ['Vapor / líquido / película', `${(d.vapor * 1e6).toFixed(1)} / ${(d.liquid * 1e6).toFixed(1)} / ${(d.film * 1e6).toFixed(1)} mg`],
+        ['Alzada adm. / esc.', `${(d.liftIn * 1000).toFixed(1)} / ${(d.liftEx * 1000).toFixed(1)} mm`],
+      ];
+      this.live.innerHTML = '';
+      for (const [k, v] of rows) this.live.append(h('dt', {}, k), h('dd', {}, v));
+      const pc = sim.prevCycle;
+      this.cycle.innerHTML = '';
+      if (!pc) { this.cycle.append(h('p', { class: 'hint' }, 'Los resultados aparecen al terminar el primer ciclo.')); return; }
+      const st = pc.stats;
+      const ang = v => (v == null ? '—' : `${v >= 0 ? v.toFixed(1) + '° DPMS' : (-v).toFixed(1) + '° APMS'}`);
+      const caPos = v => { const x = ((v % 720) + 720) % 720; return x >= 360 ? x - 720 : x; };
+      const knock = st.knockCa ? `Sí, a ${ang(caPos(st.knockCa))} · ${(st.knockFreq / 1000).toFixed(1)} kHz · ${(st.knockFrac * 1e6).toFixed(2)} mg` : 'No';
+      const res = [
+        ['PMI neta / bruta', `${(st.imep / 1e5).toFixed(2)} / ${(st.imepGross / 1e5).toFixed(2)} bar`],
+        ['Presión máxima', `${(st.pMax / 1e5).toFixed(1)} bar a ${ang(caPos(st.caPMax))}`],
+        ['Quemado 10 / 50 / 90 %', [st.mfb10, st.mfb50, st.mfb90].map(v => (v == null ? '—' : `${v.toFixed(1)}°`)).join(' / ')],
+        ['Duración 10–90 %', st.mfb10 != null && st.mfb90 != null ? `${(st.mfb90 - st.mfb10).toFixed(1)}°` : '—'],
+        ['Rendimiento indicado', `${(st.efficiency * 100).toFixed(1)} %`],
+        ['Eficiencia de combustión', `${(st.combustionEff * 100).toFixed(1)} %`],
+        ['Calor a las paredes', st.qComb > 0 ? `${(st.qWall / st.qComb * 100).toFixed(1)} % del liberado` : '—'],
+        ['Llenado (η volumétrico)', `${(st.volEff * 100).toFixed(1)} %`],
+        ['λ atrapado', isFinite(st.lambdaTrapped) ? st.lambdaTrapped.toFixed(2) : '—'],
+        ['Combustible sin quemar al abrir escape', `${(st.hcEvo * 100).toFixed(1)} %`],
+        ["u' en la chispa", `${st.uSpark.toFixed(1)} m/s`],
+        ['Squish máximo', `${st.sqMax.toFixed(1)} m/s`],
+        ['Película máxima', `${(st.filmMax * 1e6).toFixed(2)} mg`],
+        ['Golpe (knock)', knock],
+        ['Encendido', st.misfire ? 'Falló: mezcla fuera de rango en la bujía' : 'Normal'],
+      ];
+      for (const [k, v] of res) this.cycle.append(h('dt', {}, k), h('dd', { class: k === 'Golpe (knock)' && st.knockCa ? 'warn' : k === 'Encendido' && st.misfire ? 'warn' : '' }, v));
+    }
+  }
+
+  return { App, PRESETS, GROUPS, FIELDS };
+})();
+
+if (typeof window !== 'undefined') window.addEventListener('DOMContentLoaded', () => { window.pistonLab = new PSUI.App(); });
+/* END Piston-Sim-UI.js */
+</script>
+</body>
+</html>
