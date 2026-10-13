@@ -21,19 +21,24 @@ const PSUI = (() => {
   const mix = (c1, c2, t) => [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)];
 
   const PRESETS = [
-    { id: 'puerto', name: 'Inyección en el puerto', meta: 'λ 1 · mezcla homogénea', params: {} },
+    { id: 'tumble', name: 'Techo a dos aguas', meta: 'corte plano · tumble', params: {} },
+    { id: 'cupula', name: 'Cúpula', meta: 'corte plano · squish 40 %', params: { chamber: 'cupula' } },
+    { id: 'descentrada', name: 'Cámara descentrada', meta: 'squish de un solo lado', params: { chamber: 'cupula', chamberOffset: 0.4, sparkX: 0.35, squishFrac: 0.45 } },
+    { id: 'squish', name: 'Sin squish', meta: 'cámara plana', params: { chamber: 'plana', spark: 16 } },
     { id: 'directa', name: 'Inyección directa', meta: 'inyecta en la admisión', params: { injection: 'directa', diSoi: 300 } },
-    { id: 'estratificada', name: 'Carga estratificada', meta: 'λ 1.4 · inyección tardía', params: { injection: 'directa', diSoi: 125, lambda: 1.4, pIntake: 1.0e5, spark: 16 } },
-    { id: 'knock', name: 'Golpe (knock)', meta: 'RC 12.5 · avance 38°', params: { cr: 12.5, spark: 38, octane: 87 } },
-    { id: 'pobre', name: 'Mezcla pobre', meta: 'λ 1.5 · avance 30°', params: { lambda: 1.5, spark: 30 } },
-    { id: 'parcial', name: 'Carga parcial', meta: '0.45 bar · 1500 rpm', params: { pIntake: 0.45e5, rpm: 1500, spark: 32 } },
-    { id: 'squish', name: 'Sin squish', meta: 'cámara plana', params: { chamber: 'plana', spark: 24 } },
+    { id: 'estratificada', name: 'Carga estratificada', meta: 'λ 1.4 · inyección tardía', params: { injection: 'directa', diSoi: 125, lambda: 1.4, pIntake: 1.0e5, spark: 10 } },
+    { id: 'knock', name: 'Golpe (knock)', meta: 'RC 12.5 · avance 30°', params: { cr: 12.5, spark: 30, octane: 87 } },
+    { id: 'pobre', name: 'Mezcla pobre', meta: 'λ 1.5 · avance 22°', params: { lambda: 1.5, spark: 22 } },
+    { id: 'parcial', name: 'Carga parcial', meta: '0.45 bar · 1500 rpm', params: { pIntake: 0.45e5, rpm: 1500, spark: 24 } },
+    { id: 'axial', name: 'Axisimétrico', meta: 'swirl · válvulas en anillo', params: { section: 'axial', chamber: 'cupula', jetAngle: 35, spark: 18 } },
     { id: 'etanol', name: 'Etanol', meta: 'RC 12', params: { fuel: 'etanol', cr: 12 } },
-    { id: 'gnc', name: 'GNC (metano)', meta: 'gas, sin gotas', params: { fuel: 'metano', spark: 20 } },
+    { id: 'gnc', name: 'GNC (metano)', meta: 'gas, sin gotas', params: { fuel: 'metano', spark: 12 } },
   ];
 
   const FIELDS = {
+    composicion: { label: 'Composición', unit: '', min: 0, max: 1 },
     temperatura: { label: 'Temperatura', unit: 'K', min: 300, max: 2800 },
+    vorticidad: { label: 'Vorticidad', unit: '1/s', min: -4000, max: 4000 },
     velocidad: { label: 'Velocidad', unit: 'm/s', min: 0, max: 30 },
     turbulencia: { label: "Turbulencia u'", unit: 'm/s', min: 0, max: 12 },
     dosado: { label: 'Dosado φ', unit: '', min: 0, max: 2 },
@@ -71,8 +76,8 @@ const PSUI = (() => {
         { key: 'evo', label: 'Abre escape', min: 0, max: 100, step: 1, fmt: v => `${v}° APMI` },
         { key: 'evc', label: 'Cierra escape', min: -30, max: 60, step: 1, fmt: v => `${v}° DPMS` },
         { key: 'ivLift', label: 'Alzada admisión', min: 0.003, max: 0.014, step: 0.0001, fmt: v => `${(v * 1000).toFixed(1)} mm` },
-        { key: 'swirl', label: 'Swirl del puerto', min: 0, max: 1.5, step: 0.01, fmt: v => v.toFixed(2) },
-        { key: 'jetAngle', label: 'Ángulo del chorro', min: 0, max: 75, step: 1, fmt: v => `${v}°` },
+        { key: 'swirl', label: 'Swirl del puerto (axial)', min: 0, max: 1.5, step: 0.01, fmt: v => v.toFixed(2) },
+        { key: 'jetAngle', label: 'Ángulo del chorro', min: 0, max: 80, step: 1, fmt: v => `${v}°` },
       ],
     },
     {
@@ -85,16 +90,19 @@ const PSUI = (() => {
       ],
     },
     {
-      title: 'Geometría y combustible', hint: 'Estos cambios reinician la simulación.', reset: true, items: [
+      title: 'Geometría y combustible', hint: 'Estos cambios reinician la simulación. El descentrado y la bujía solo cuentan en el corte plano.', reset: true, items: [
         { key: 'fuel', label: 'Combustible', options: Object.entries(PS_FUELS).map(([k, f]) => [k, f.label]) },
         { key: 'bore', label: 'Diámetro', min: 0.06, max: 0.11, step: 0.0005, fmt: v => `${(v * 1000).toFixed(1)} mm` },
         { key: 'stroke', label: 'Carrera', min: 0.05, max: 0.11, step: 0.0005, fmt: v => `${(v * 1000).toFixed(1)} mm` },
         { key: 'rod', label: 'Biela', min: 0.1, max: 0.2, step: 0.001, fmt: v => `${(v * 1000).toFixed(0)} mm` },
         { key: 'cr', label: 'Relación de compresión', min: 7, max: 16, step: 0.1, fmt: v => `${v.toFixed(1)} : 1` },
-        { key: 'chamber', label: 'Cámara', options: [['cupula', 'Cúpula en la culata'], ['bowl', 'Bowl en el pistón'], ['plana', 'Plana (sin squish)']] },
+        { key: 'section', label: 'Corte', options: [['plano', 'Plano 2D (tumble)'], ['axial', 'Axisimétrico (swirl)']] },
+        { key: 'chamber', label: 'Cámara', options: [['techo', 'Techo a dos aguas'], ['cupula', 'Cúpula en la culata'], ['bowl', 'Bowl en el pistón'], ['plana', 'Plana (sin squish)']] },
+        { key: 'chamberOffset', label: 'Descentrado de la cámara', min: -0.6, max: 0.6, step: 0.01, fmt: v => `${Math.round(v * 100)} % del radio` },
+        { key: 'sparkX', label: 'Posición de la bujía', min: -0.7, max: 0.7, step: 0.01, fmt: v => `${Math.round(v * 100)} % del radio` },
         { key: 'squishClear', label: 'Huelgo de squish', min: 0.0005, max: 0.004, step: 0.0001, fmt: v => `${(v * 1000).toFixed(1)} mm` },
         { key: 'squishFrac', label: 'Área de squish', min: 0.05, max: 0.75, step: 0.01, fmt: pct },
-        { key: 'resolution', label: 'Malla', options: [['rapida', 'Rápida'], ['normal', 'Normal'], ['fina', 'Fina']] },
+        { key: 'resolution', label: 'Malla', options: [['rapida', 'Rápida'], ['normal', 'Normal'], ['fina', 'Fina'], ['muyfina', 'Muy fina (lenta)']] },
       ],
     },
   ];
@@ -133,13 +141,47 @@ const PSUI = (() => {
       case 'turbulencia': return Math.sqrt(2 / 3 * sim.k[c]);
       case 'dosado': { const m = sim.m[c], YF = sim.mF[c] / m, YA = 1 - YF - sim.mP[c] / m; return YA > 1e-6 ? YF / YA * sim.fuel.AFR : 2; }
       case 'swirl': return sim.v[c];
+      case 'vorticidad': return vorticity(sim, c);
       default: return 0;
     }
   }
-  function fieldColor(sim, field, c, out, o) {
+  // Out of plane vorticity du/dy - dw/dx from neighbouring cells (walls count as still).
+  function vorticity(sim, c) {
+    const g = sim.g, NZ = g.NZ, i = (c / NZ) | 0, j = c % NZ, act = g.act;
+    const nb = (cc, ok) => (ok && act[cc] ? cc : -1);
+    const e = nb(c + NZ, i + 1 < g.nr), w = nb(c - NZ, i > 0), up = nb(c - 1, j > 0), dn = nb(c + 1, j + 1 < NZ);
+    const dx = (e >= 0 ? sim.w[e] : 0) - (w >= 0 ? sim.w[w] : 0);
+    const dudy = (dn >= 0 ? sim.u[dn] : 0) - (up >= 0 ? sim.u[up] : 0);
+    const hy = (up >= 0 ? 0.5 * (sim.dz[j] + sim.dz[j - 1]) : 0.5 * sim.dz[j]) + (dn >= 0 ? 0.5 * (sim.dz[j] + sim.dz[j + 1]) : 0.5 * sim.dz[j]);
+    return dudy / hy - dx / (2 * g.dr);
+  }
+  const DIVERGING = new Set(['swirl', 'dosado', 'vorticidad']);
+
+  // Smooth chamber outline (the mesh walls are steps of it).
+  function recessShape(g, x) {
+    if (g.type === 'plana' || !g.rRec) return 0;
+    const t = Math.abs(x - g.off) / g.rRec;
+    if (t >= 1) return 0;
+    return g.type === 'techo' ? 1 - t : Math.sqrt(1 - t * t);
+  }
+  function insideChamber(sim, x, y) {
+    const g = sim.g, D = g.nRec * g.dzRec, sh = recessShape(g, x);
+    if (Math.abs(x) >= g.R) return false;
+    const top = g.nd ? -D * sh : 0, bot = sim.h + (g.nb ? D * sh : 0);
+    return y >= top && y <= bot;
+  }
+  function nearestInColumn(g, i, j) {
+    for (let d = 0; d < g.NZ; d++) {
+      if (j + d < g.NZ && g.act[i * g.NZ + j + d]) return i * g.NZ + j + d;
+      if (j - d >= 0 && g.act[i * g.NZ + j - d]) return i * g.NZ + j - d;
+    }
+    return -1;
+  }
+  function fieldColor(sim, field, c, out, o, qRef) {
+    if (field === 'composicion') return compositionColor(sim, c, out, o, qRef);
     const f = FIELDS[field], v = fieldValue(sim, field, c);
     const t = (v - f.min) / (f.max - f.min);
-    const col = field === 'swirl' || field === 'dosado' ? ramp(t, DIVERGE) : ramp(t, RAMP);
+    const col = DIVERGING.has(field) ? ramp(t, DIVERGE) : ramp(t, RAMP);
     out[o] = col[0]; out[o + 1] = col[1]; out[o + 2] = col[2];
   }
 
@@ -147,12 +189,12 @@ const PSUI = (() => {
 
   class App {
     constructor() {
-      this.preset = 'puerto';
+      this.preset = 'tumble';
       this.params = Object.assign({}, PS_DEFAULTS);
       this.sim = new PSCylinder(this.params);
       this.running = true;
       this.speed = 40;           // crank degrees per second of wall time
-      this.view = { field: 'temperatura', arrows: true, drops: true, front: true, zoom: false };
+      this.view = { field: 'temperatura', field2: 'composicion', arrows: true, relative: true, tracers: true, drops: true, front: true, zoom: false };
       this.colL = null; this.colR = null;
       this.last = performance.now();
       this.simRate = 0;
@@ -181,19 +223,20 @@ const PSUI = (() => {
 
       // view toolbar
       const tools = $('#view-tools');
-      const fieldSel = h('select', { class: 'sel', 'aria-label': 'Campo de la derecha', onchange: e => { this.view.field = e.target.value; this.drawLegend(); } },
-        Object.entries(FIELDS).map(([k, f]) => h('option', { value: k, selected: k === this.view.field }, f.label)));
-      const chk = (key, label) => h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: this.view[key], onchange: e => { this.view[key] = e.target.checked; } }), label);
-      const zoom = h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: this.view.zoom, onchange: e => { this.view.zoom = e.target.checked; this.resize(); this.draw(); } }), 'Zoom en la cámara');
-      tools.append(h('span', { class: 'muted' }, 'Izquierda: composición · Derecha:'), fieldSel, chk('arrows', 'Flechas'), chk('drops', 'Gotas'), chk('front', 'Frente'), zoom);
-
+      const sel = (key, label) => h('select', { class: 'sel', 'aria-label': label, onchange: e => { this.view[key] = e.target.value; this.drawLegend(); } },
+        Object.entries(FIELDS).map(([k, f]) => h('option', { value: k, selected: k === this.view[key] }, f.label)));
+      const chk = (key, label) => h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: this.view[key], onchange: e => { this.view[key] = e.target.checked; this.drawLegend(); if (key === 'zoom') { this.resize(); this.draw(); } } }), label);
+      this.fieldLabel = h('span', { class: 'muted' });
+      this.selLeft = sel('field2', 'Campo izquierdo'); this.selRight = sel('field', 'Campo derecho');
+      tools.append(this.fieldLabel, this.selLeft, this.selRight, chk('tracers', 'Trazadores'), chk('arrows', 'Flechas'), chk('relative', 'Sin el pistón'),
+        chk('drops', 'Gotas'), chk('front', 'Frente'), chk('zoom', 'Zoom en la cámara'));
       this.cv = $('#cyl'); this.ctx = this.cv.getContext('2d');
       this.off = document.createElement('canvas'); this.offCtx = this.off.getContext('2d');
       this.plots = { p: $('#plot-p'), pv: $('#plot-pv'), hrr: $('#plot-hrr'), fuel: $('#plot-fuel') };
       this.legend = $('#legend');
       this.live = $('#live'); this.cycle = $('#cycle');
       this.buildControls();
-      this.drawLegend();
+      this.updateToolbar();
       addEventListener('keydown', e => {
         if (e.target.closest && e.target.closest('input,select,textarea')) return;
         if (e.code === 'Space') { e.preventDefault(); this.toggle(); }
@@ -252,10 +295,18 @@ const PSUI = (() => {
 
     reset() {
       this.sim = new PSCylinder(Object.assign({}, this.params));
+      this.updateToolbar();
       this.colL = this.colR = null;
       this.syncControls();
       this.resize();
       this.draw();
+    }
+
+    updateToolbar() {
+      if (!this.fieldLabel) return;
+      const planar = this.sim.g.planar;
+      this.fieldLabel.textContent = planar ? 'Mitad izquierda / derecha:' : 'Izquierda / derecha (espejo):';
+      this.drawLegend();
     }
 
     toggle() { this.running = !this.running; this.updatePlay(); }
@@ -356,6 +407,17 @@ const PSUI = (() => {
       // Gas
       this.drawGas();
 
+      const sides = g.planar ? [1] : [-1, 1];
+      // Tracers: gas admitted this cycle (light) and residual gas (amber)
+      if (this.view.tracers && sim.tracers) {
+        for (const kind of [0, 1]) {
+          ctx.fillStyle = kind ? 'rgba(225, 245, 255, 0.6)' : 'rgba(255, 150, 40, 0.75)';
+          for (const t of sim.tracers) {
+            if (t.kind !== kind) continue;
+            for (const sg of sides) ctx.fillRect(X(sg * t.x) - 1, Y(t.y) - 1, 2, 2);
+          }
+        }
+      }
       // Wall film
       if (sim.fuel.liquid) {
         ctx.fillStyle = 'rgba(150, 225, 255, 0.95)';
@@ -366,14 +428,15 @@ const PSUI = (() => {
           const th2 = clamp(1 + Math.log10(fm / 2e-9) * 1.2, 1, 4);
           const y0 = sim.yTop[j], y1 = y0 + sim.dz[j];
           const wtype = sim.filmWall[c];
-          for (const sg of [-1, 1]) {
-            if (wtype === 1 || (wtype === 2 && i + 1 < g.nr && !g.act[c + g.NZ] && sim.g.rowType[j] !== 1)) {
-              const xr = sg > 0 ? X(g.rw[i + 1]) - th2 : X(-g.rw[i + 1]);
-              ctx.fillRect(xr, Y(y0), th2, sim.dz[j] * s);
+          for (const sg of sides) {
+            const xa = X(sg > 0 ? g.rw[i] : -g.rw[i + 1]), xb = X(sg > 0 ? g.rw[i + 1] : -g.rw[i]);
+            const leftWall = g.planar ? i === 0 || !g.act[c - g.NZ] : false;
+            if (wtype === 1 || (wtype === 2 && sim.g.rowType[j] !== 1 && (leftWall || (i + 1 < g.nr && !g.act[c + g.NZ])))) {
+              const onLeft = g.planar ? leftWall : sg < 0;
+              ctx.fillRect(onLeft ? xa : xb - th2, Y(y0), th2, sim.dz[j] * s);
             } else {
               const yy = wtype === 0 ? Y(y0) : Y(y1) - th2;
-              const xa = sg > 0 ? X(g.rw[i]) : X(-g.rw[i + 1]);
-              ctx.fillRect(xa, yy, g.dr * s, th2);
+              ctx.fillRect(xa, yy, xb - xa, th2);
             }
           }
         }
@@ -383,7 +446,7 @@ const PSUI = (() => {
         ctx.fillStyle = 'rgba(240, 248, 255, 0.9)';
         for (const q of sim.parcels) {
           const rad = clamp(q.d * 1e6 * 0.045, 0.7, 4);
-          for (const sg of [-1, 1]) {
+          for (const sg of sides) {
             ctx.beginPath(); ctx.arc(X(sg * q.r), Y(q.y), rad, 0, 2 * Math.PI); ctx.fill();
           }
         }
@@ -397,11 +460,11 @@ const PSUI = (() => {
           if (!g.act[c]) continue;
           const b = sim.c[c] >= 0.5;
           if (i + 1 < g.nr && g.act[c + g.NZ] && (sim.c[c + g.NZ] >= 0.5) !== b && sim.mF[b ? c + g.NZ : c] > 1e-4 * sim.m[c]) {
-            for (const sg of [-1, 1]) { ctx.moveTo(X(sg * g.rw[i + 1]), Y(sim.yTop[j])); ctx.lineTo(X(sg * g.rw[i + 1]), Y(sim.yTop[j] + sim.dz[j])); }
+            for (const sg of sides) { ctx.moveTo(X(sg * g.rw[i + 1]), Y(sim.yTop[j])); ctx.lineTo(X(sg * g.rw[i + 1]), Y(sim.yTop[j] + sim.dz[j])); }
           }
           if (j + 1 < g.NZ && g.act[c + 1] && (sim.c[c + 1] >= 0.5) !== b && sim.mF[b ? c + 1 : c] > 1e-4 * sim.m[c]) {
             const y = Y(sim.yTop[j + 1]);
-            for (const sg of [-1, 1]) { ctx.moveTo(X(sg * g.rw[i]), y); ctx.lineTo(X(sg * g.rw[i + 1]), y); }
+            for (const sg of sides) { ctx.moveTo(X(sg * g.rw[i]), y); ctx.lineTo(X(sg * g.rw[i + 1]), y); }
           }
         }
         ctx.stroke();
@@ -413,31 +476,32 @@ const PSUI = (() => {
       this.drawValve(g.inR, sim.liftIn || 0, '#6c8fb3', p.ivDiam);
       this.drawValve(g.exR, sim.liftEx || 0, '#b37a6c', p.evDiam);
       // Spark plug
-      const c0 = sim.roofCell(0);
-      const roofY = sim.yTop[c0];
-      const sparkY = roofY + Math.min(0.003, 0.35 * sim.Hcol[0]);
+      const sx = g.planar ? sim.sparkX() : 0, si = psColumn(g, sx);
+      const roofY = sim.yTop[sim.roofCell(si) % g.NZ];
+      const sparkY = roofY + Math.min(0.003, 0.35 * sim.Hcol[si]);
       ctx.fillStyle = '#c9ced3';
-      ctx.fillRect(X(-0.0009), Y(roofY) - 2, 0.0018 * s, (sparkY - roofY) * s + 2);
-      ctx.fillRect(X(-0.0026), Y(sparkY) - 1, 0.0052 * s * 0.5, Math.max(2, 0.0006 * s));
-      ctx.fillStyle = '#e8e2d0'; ctx.fillRect(X(-0.002), Y(yHeadTop), 0.004 * s, (roofY - yHeadTop) * s);
+      ctx.fillRect(X(sx - 0.0009), Y(roofY) - 2, 0.0018 * s, (sparkY - roofY) * s + 2);
+      ctx.fillRect(X(sx - 0.0026), Y(sparkY) - 1, 0.0052 * s * 0.5, Math.max(2, 0.0006 * s));
+      ctx.fillStyle = '#e8e2d0'; ctx.fillRect(X(sx - 0.002), Y(yHeadTop), 0.004 * s, (roofY - yHeadTop) * s);
       if (sim.sparking || (sim.ignited && sim.stats.ignitionCa != null && sim.ca - sim.stats.ignitionCa < 3)) {
-        const gx = X(0), gy = Y(sparkY + 0.0006);
+        const gx = X(sx), gy = Y(sparkY + 0.0006);
         const rg = ctx.createRadialGradient(gx, gy, 0, gx, gy, 0.006 * s);
         rg.addColorStop(0, 'rgba(255,255,255,1)'); rg.addColorStop(0.3, 'rgba(160,190,255,0.7)'); rg.addColorStop(1, 'rgba(120,150,255,0)');
         ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(gx, gy, 0.006 * s, 0, 2 * Math.PI); ctx.fill();
       }
       // Injector
       if (p.injection === 'directa') {
+        const ix = g.planar ? sim.injectorX() : 0.0028;
+        const iy = sim.yTop[sim.roofCell(psColumn(g, ix)) % g.NZ];
         ctx.fillStyle = '#9fb0bf';
-        ctx.fillRect(X(0.0028), Y(yHeadTop), 0.0022 * s, (roofY - yHeadTop) * s + 1);
+        ctx.fillRect(X(ix), Y(yHeadTop), 0.0022 * s, (iy - yHeadTop) * s + 1);
         ctx.fillStyle = sim.inj && sim.inj.left > 0 ? '#d6f1ff' : '#5f6f7d';
-        ctx.fillRect(X(0.0030), Y(roofY) - 1, 0.0018 * s, 3);
+        ctx.fillRect(X(ix + 0.0002), Y(iy) - 1, 0.0018 * s, 3);
       }
       // Labels
       ctx.font = '600 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#c7ced4';
       if (!this.view.zoom || true) ctx.textBaseline = 'alphabetic';
-      ctx.fillText('ADM', X(g.inR), Y(yHeadTop) + 13); ctx.fillText('ADM', X(-g.inR), Y(yHeadTop) + 13);
-      ctx.fillText('ESC', X(g.exR), Y(yHeadTop) + 13); ctx.fillText('ESC', X(-g.exR), Y(yHeadTop) + 13);
+      for (const sg of sides) { ctx.fillText('ADM', X(sg * g.inR), Y(yHeadTop) + 13); ctx.fillText('ESC', X(sg * g.exR), Y(yHeadTop) + 13); }
       // In zoom the window ends below the chamber: say where the piston went.
       if (this.view.zoom && this.Y(sim.h) > L.H - 4) {
         const fade = ctx.createLinearGradient(0, L.H - 36, 0, L.H);
@@ -453,10 +517,10 @@ const PSUI = (() => {
     drawValve(r, lift, color, diamFrac) {
       const { ctx, sim, L } = this, g = sim.g, s = L.s;
       const X = rr => this.X(rr), Y = y => this.Y(y);
-      const i = Math.min(g.nr - 1, Math.floor(r / g.dr));
+      const i = psColumn(g, r);
       const roof = sim.yTop[sim.roofCell(i) % g.NZ];
-      const halfW = Math.min(0.12 * g.R, 0.25 * diamFrac * g.B);
-      for (const sg of [-1, 1]) {
+      const halfW = Math.min(g.planar ? 0.22 * g.R : 0.12 * g.R, 0.25 * diamFrac * g.B);
+      for (const sg of g.planar ? [1] : [-1, 1]) {
         const x0 = X(sg * r);
         ctx.fillStyle = color;
         // stem
@@ -491,8 +555,8 @@ const PSUI = (() => {
       const qRef = Math.max(5e9, 0.6 * qMax);
       for (let c = 0; c < N; c++) {
         if (!g.act[c]) continue;
-        compositionColor(sim, c, this.colL, c * 3, qRef);
-        fieldColor(sim, this.view.field, c, this.colR, c * 3);
+        fieldColor(sim, this.view.field2, c, this.colL, c * 3, qRef);
+        fieldColor(sim, this.view.field, c, this.colR, c * 3, qRef);
         if (sim.mik[c] > 0.7 * sim.m[c] && sim.c[c] < 0.5 && sim.mF[c] > 1e-3 * sim.m[c]) {
           // end gas close to autoignition glows red
           const t = clamp((sim.mik[c] / sim.m[c] - 0.7) / 0.3, 0, 1);
@@ -513,10 +577,11 @@ const PSUI = (() => {
       const colF = this.colF && this.colF.length === wpx ? this.colF : (this.colF = new Float32Array(wpx));
       const colC = this.colC && this.colC.length === wpx ? this.colC : (this.colC = new Int32Array(wpx));
       for (let x = 0; x < wpx; x++) {
-        const r = Math.abs((x + 0.5 - half) / (s * k));
-        const u = r / g.dr - 0.5;
+        let r = (x + 0.5 - half) / (s * k);
+        if (!g.planar) r = Math.abs(r);
+        const u = (r - g.x0) / g.dr - 0.5;
         const i0 = Math.floor(u);
-        colI[x] = i0; colF[x] = u - i0; colC[x] = Math.min(g.nr - 1, Math.floor(r / g.dr));
+        colI[x] = i0; colF[x] = u - i0; colC[x] = psColumn(g, r);
       }
       let jRow = 0;
       for (let y = 0; y < hpx; y++) {
@@ -530,7 +595,15 @@ const PSUI = (() => {
         for (let x = 0; x < wpx; x++) {
           const o = (y * wpx + x) * 4;
           const cc = colC[x] * NZ + jRow;
-          if (!g.act[cc]) { data[o + 3] = 0; continue; }
+          // Draw the chamber with its smooth outline: the mesh walls are steps of it,
+          // so pixels between the two borrow the nearest gas cell of the column.
+          const xx = g.planar ? (x + 0.5 - half) / (s * k) : Math.abs((x + 0.5 - half) / (s * k));
+          if (!insideChamber(sim, xx, yy)) { data[o + 3] = 0; continue; }
+          let cc2 = cc;
+          if (!g.act[cc]) {
+            cc2 = nearestInColumn(g, colC[x], jRow);
+            if (cc2 < 0) { data[o + 3] = 0; continue; }
+          }
           const arr = x < half ? this.colL : this.colR;
           let i0 = colI[x], fx = colF[x];
           if (i0 < 0) { i0 = 0; fx = 0; }
@@ -543,7 +616,7 @@ const PSUI = (() => {
             const wgt = (di ? fx : 1 - fx) * (dj ? fy : 1 - fy) + 1e-6;
             rr += wgt * arr[c * 3]; gg += wgt * arr[c * 3 + 1]; bb += wgt * arr[c * 3 + 2]; ww += wgt;
           }
-          if (ww <= 0) { const c = cc; rr = arr[c * 3]; gg = arr[c * 3 + 1]; bb = arr[c * 3 + 2]; ww = 1; }
+          if (ww <= 0) { const c = cc2; rr = arr[c * 3]; gg = arr[c * 3 + 1]; bb = arr[c * 3 + 2]; ww = 1; }
           data[o] = rr / ww; data[o + 1] = gg / ww; data[o + 2] = bb / ww; data[o + 3] = 255;
         }
       }
@@ -551,7 +624,7 @@ const PSUI = (() => {
       const ctx = this.ctx;
       ctx.imageSmoothingEnabled = true;
       ctx.drawImage(this.off, this.X(-g.R), this.Y(yTop), 2 * g.R * s, (yBot - yTop) * s);
-      // Divider on the axis
+      // Divider between the two fields
       ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.setLineDash([3, 4]); ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(this.X(0), this.Y(yTop)); ctx.lineTo(this.X(0), this.Y(yBot)); ctx.stroke(); ctx.setLineDash([]);
     }
@@ -560,21 +633,28 @@ const PSUI = (() => {
       const { ctx, sim, L } = this, g = sim.g, s = L.s;
       const step = 17;
       const yTop = sim.yTop[0], yBot = sim.yTop[g.NZ];
-      ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(255, 236, 120, 0.85)'; ctx.lineWidth = 1.2;
       ctx.beginPath();
+      const x0px = g.planar ? this.X(-g.R) : L.cx;
       for (let py = this.Y(yTop) + step / 2; py < this.Y(yBot); py += step) {
         const y = (py / s) + L.yMin;
-        for (let px = L.cx + step / 2; px < this.X(g.R); px += step) {
+        for (let px = x0px + step / 2; px < this.X(g.R); px += step) {
           const r = (px - L.cx) / s;
           const c = sim.cellAt(r, y);
           if (c < 0) continue;
-          const u = sim.u[c], w = sim.w[c], sp = Math.hypot(u, w);
+          let u = sim.u[c], w = sim.w[c];
+          if (this.view.relative) {
+            // Remove the flow the piston itself drives (the mesh speed at this height).
+            const j = c % g.NZ, t = g.rowType[j];
+            w -= t === 0 ? 0 : t === 2 ? sim.vp : 0.5 * (sim.gv[j] + sim.gv[j + 1]);
+          }
+          const sp = Math.hypot(u, w);
           if (sp < 0.3) continue;
           const len = Math.min(step * 0.9, 2.5 + sp * 0.8), ux = u / sp, uy = w / sp;
-          for (const sg of [-1, 1]) {
-            const x0 = L.cx + sg * (px - L.cx), dx = sg * ux;
-            const x1 = x0 + dx * len, y1 = py + uy * len;
-            ctx.moveTo(x0, py); ctx.lineTo(x1, y1);
+          for (const sg of g.planar ? [1] : [-1, 1]) {
+            const xa = L.cx + sg * (px - L.cx), dx = sg * ux;
+            const x1 = xa + dx * len, y1 = py + uy * len;
+            ctx.moveTo(xa, py); ctx.lineTo(x1, y1);
             ctx.moveTo(x1, y1); ctx.lineTo(x1 - dx * 3 - uy * 2, y1 - uy * 3 + dx * 2);
             ctx.moveTo(x1, y1); ctx.lineTo(x1 - dx * 3 + uy * 2, y1 - uy * 3 - dx * 2);
           }
@@ -584,18 +664,25 @@ const PSUI = (() => {
     }
 
     drawLegend() {
-      const f = FIELDS[this.view.field];
-      const stops = this.view.field === 'swirl' || this.view.field === 'dosado' ? DIVERGE : RAMP;
-      const css = stops.map((c, k) => `rgb(${c.map(Math.round).join(',')}) ${Math.round(k / (stops.length - 1) * 100)}%`).join(',');
       this.legend.innerHTML = '';
       const sw = (col, label) => h('span', { class: 'sw' }, h('i', { style: `background:${col}` }), label);
-      this.legend.append(
-        h('div', { class: 'legend-row' }, h('strong', {}, 'Composición'),
-          sw('rgb(46,128,255)', 'mezcla'), sw('rgb(96,60,240)', 'rica'), sw('rgb(38,62,96)', 'aire'),
-          sw('rgb(128,132,138)', 'gases quemados'), sw('rgb(255,138,31)', 'llama'), sw('rgb(240,248,255)', 'gotas'), sw('rgb(150,225,255)', 'película')),
-        h('div', { class: 'legend-row' }, h('strong', {}, f.label),
+      const shown = [...new Set([this.view.field2, this.view.field])];
+      for (const key of shown) {
+        if (key === 'composicion') {
+          this.legend.append(h('div', { class: 'legend-row' }, h('strong', {}, 'Composición'),
+            sw('rgb(46,128,255)', 'mezcla'), sw('rgb(96,60,240)', 'rica'), sw('rgb(38,62,96)', 'aire'),
+            sw('rgb(128,132,138)', 'gases quemados'), sw('rgb(255,138,31)', 'llama'), sw('rgb(240,248,255)', 'gotas'), sw('rgb(150,225,255)', 'película')));
+          continue;
+        }
+        const f = FIELDS[key], stops = DIVERGING.has(key) ? DIVERGE : RAMP;
+        const css = stops.map((c, k) => `rgb(${c.map(Math.round).join(',')}) ${Math.round(k / (stops.length - 1) * 100)}%`).join(',');
+        this.legend.append(h('div', { class: 'legend-row' }, h('strong', {}, f.label),
           h('span', { class: 'bar-scale' }, h('i', { style: `background:linear-gradient(90deg,${css})` }),
             h('span', {}, `${f.min}`), h('span', {}, `${f.max} ${f.unit}`))));
+      }
+      this.legend.append(h('div', { class: 'legend-row' }, h('strong', {}, 'Trazadores'),
+        sw('rgb(200,240,255)', 'gas admitido en este ciclo'), sw('rgb(255,176,70)', 'gas residual'),
+        h('span', {}, this.view.relative ? 'Flechas: velocidad sin el movimiento del pistón' : 'Flechas: velocidad absoluta')));
     }
 
     // ---------------------------------------------------------- plots
@@ -724,7 +811,7 @@ const PSUI = (() => {
         ['Fracción quemada', `${(d.mfb * 100).toFixed(0)} %`],
         ["Turbulencia u'", `${f1(d.u)} m/s`],
         ['Velocidad de squish', `${f1(d.usq)} m/s`],
-        ['Relación de swirl', d.swirl.toFixed(2)],
+        sim.g.planar ? ['Relación de tumble', d.tumble.toFixed(2)] : ['Relación de swirl', d.swirl.toFixed(2)],
         ['Vapor / líquido / película', `${(d.vapor * 1e6).toFixed(1)} / ${(d.liquid * 1e6).toFixed(1)} / ${(d.film * 1e6).toFixed(1)} mg`],
         ['Alzada adm. / esc.', `${(d.liftIn * 1000).toFixed(1)} / ${(d.liftEx * 1000).toFixed(1)} mm`],
       ];
@@ -736,7 +823,8 @@ const PSUI = (() => {
       const st = pc.stats;
       const ang = v => (v == null ? '—' : `${v >= 0 ? v.toFixed(1) + '° DPMS' : (-v).toFixed(1) + '° APMS'}`);
       const caPos = v => { const x = ((v % 720) + 720) % 720; return x >= 360 ? x - 720 : x; };
-      const knock = st.knockCa ? `Sí, a ${ang(caPos(st.knockCa))} · ${(st.knockFreq / 1000).toFixed(1)} kHz · ${(st.knockFrac * 1e6).toFixed(2)} mg` : 'No';
+      const knockWord = st.knockShare < 0.01 ? 'Leve' : 'Sí';
+      const knock = st.knockCa ? `${knockWord}, a ${ang(caPos(st.knockCa))} · ${(st.knockFreq / 1000).toFixed(1)} kHz · ${(st.knockShare * 100).toFixed(1)} % del combustible` : 'No';
       const res = [
         ['PMI neta / bruta', `${(st.imep / 1e5).toFixed(2)} / ${(st.imepGross / 1e5).toFixed(2)} bar`],
         ['Presión máxima', `${(st.pMax / 1e5).toFixed(1)} bar a ${ang(caPos(st.caPMax))}`],
@@ -754,7 +842,7 @@ const PSUI = (() => {
         ['Golpe (knock)', knock],
         ['Encendido', st.misfire ? 'Falló: mezcla fuera de rango en la bujía' : 'Normal'],
       ];
-      for (const [k, v] of res) this.cycle.append(h('dt', {}, k), h('dd', { class: k === 'Golpe (knock)' && st.knockCa ? 'warn' : k === 'Encendido' && st.misfire ? 'warn' : '' }, v));
+      for (const [k, v] of res) this.cycle.append(h('dt', {}, k), h('dd', { class: k === 'Golpe (knock)' && st.knockCa && st.knockShare >= 0.01 ? 'warn' : k === 'Encendido' && st.misfire ? 'warn' : '' }, v));
     }
   }
 

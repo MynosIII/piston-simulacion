@@ -53,16 +53,17 @@ const PS_FUELS = {
 
 const PS_DEFAULTS = {
   bore: 0.086, stroke: 0.086, rod: 0.143, cr: 10.5,
-  chamber: 'cupula',            // 'cupula' (head recess), 'bowl' (piston recess), 'plana'
-  squishClear: 0.0011, squishFrac: 0.4,
+  section: 'plano',             // 'plano' (2D slice, tumble) or 'axial' (axisymmetric, swirl)
+  chamber: 'techo',             // 'techo' (pent roof), 'cupula' (dome), 'bowl' (piston recess), 'plana'
+  squishClear: 0.0011, squishFrac: 0.4, chamberOffset: 0, sparkX: 0,
   rpm: 2000, pIntake: 0.95e5, tIntake: 310, pExhaust: 1.05e5,
-  lambda: 1.0, fuel: 'gasolina', octane: null, spark: 18,
+  lambda: 1.0, fuel: 'gasolina', octane: null, spark: 8,
   injection: 'puerto',          // 'puerto' or 'directa'
   pfiVapor: 0.8, pfiDrop: 50e-6,
   diSoi: 300, diPressure: 150e5, diDrop: 18e-6, diCone: 70,
   ivo: 12, ivc: 48, evo: 50, evc: 12,
   ivLift: 0.0095, evLift: 0.009, ivDiam: 0.34, evDiam: 0.29,
-  swirl: 0.35, jetAngle: 35,
+  swirl: 0.35, jetAngle: 65,
   tHead: 480, tLiner: 420, tPiston: 540, heatTransfer: 1.0,
   flameFactor: 1.0,
   resolution: 'normal',
@@ -72,38 +73,52 @@ const PS_RESOLUTIONS = {
   rapida: { nr: 14, ng: 6, nrec: 6 },
   normal: { nr: 20, ng: 8, nrec: 8 },
   fina: { nr: 28, ng: 10, nrec: 11 },
+  muyfina: { nr: 40, ng: 14, nrec: 16 },
 };
 
 // ---------------------------------------------------------------- geometry
 
 function psBuildGeometry(p) {
   const res = PS_RESOLUTIONS[p.resolution] || PS_RESOLUTIONS.normal;
+  const planar = p.section === 'plano';
   const R = p.bore / 2, Ac = Math.PI * R * R;
   const Vd = Ac * p.stroke, Vc = Vd / (p.cr - 1);
   let type = p.chamber;
-  const nr = res.nr, dr = R / nr;
+  // Planar: the slice spans the bore and has the depth that gives the true piston area.
+  const nr = planar ? 2 * res.nr : res.nr, dr = (planar ? 2 * R : R) / nr, x0 = planar ? -R : 0;
+  const depth = planar ? Math.PI * R / 2 : 0;
   const Az = new Float64Array(nr), rc = new Float64Array(nr), rw = new Float64Array(nr + 1);
-  for (let i = 0; i <= nr; i++) rw[i] = i * dr;
+  const Ar = new Float64Array(nr + 1), rs = new Float64Array(nr);
+  for (let i = 0; i <= nr; i++) { rw[i] = x0 + i * dr; Ar[i] = planar ? depth : 2 * Math.PI * rw[i]; }
   for (let i = 0; i < nr; i++) {
-    Az[i] = Math.PI * (rw[i + 1] * rw[i + 1] - rw[i] * rw[i]);
-    rc[i] = (2 / 3) * (rw[i + 1] ** 3 - rw[i] ** 3) / (rw[i + 1] ** 2 - rw[i] ** 2);
+    if (planar) { Az[i] = dr * depth; rc[i] = rw[i] + 0.5 * dr; }
+    else {
+      Az[i] = Math.PI * (rw[i + 1] * rw[i + 1] - rw[i] * rw[i]);
+      rc[i] = (2 / 3) * (rw[i + 1] ** 3 - rw[i] ** 3) / (rw[i + 1] ** 2 - rw[i] ** 2);
+      rs[i] = rc[i];
+    }
   }
   let hTdc = Vc / Ac, rRec = 0, nRec = 0, dzRec = 0;
+  const off = planar ? (p.chamberOffset || 0) * R : 0;
   const recN = new Int32Array(nr);
   if (type !== 'plana') {
-    rRec = R * Math.sqrt(Math.min(0.95, Math.max(0.05, 1 - p.squishFrac)));
+    // The squish band covers squishFrac of the piston area.
+    const keep = Math.min(0.95, Math.max(0.05, 1 - p.squishFrac));
+    rRec = planar ? R * keep : R * Math.sqrt(keep);
     hTdc = Math.min(Math.max(p.squishClear, 0.0003), 0.85 * Vc / Ac);
     nRec = res.nrec;
     let sumA = 0;
     for (let i = 0; i < nr; i++) {
-      const s = rc[i] < rRec ? Math.sqrt(1 - (rc[i] / rRec) ** 2) : 0;
-      recN[i] = Math.min(nRec, Math.round(s * nRec + 0.25));
+      const t = Math.abs(rc[i] - off) / rRec;
+      const sh = t >= 1 ? 0 : type === 'techo' ? 1 - t : Math.sqrt(1 - t * t);
+      recN[i] = Math.min(nRec, Math.round(sh * nRec + 0.25));
       sumA += Az[i] * recN[i];
     }
     if (sumA <= 0) { type = 'plana'; hTdc = Vc / Ac; nRec = 0; recN.fill(0); }
     else dzRec = (Vc - Ac * hTdc) / sumA;
   }
-  const nd = type === 'cupula' ? nRec : 0, nb = type === 'bowl' ? nRec : 0, ng = res.ng;
+  const head = type === 'cupula' || type === 'techo';
+  const nd = head ? nRec : 0, nb = type === 'bowl' ? nRec : 0, ng = res.ng;
   const NZ = nd + ng + nb, N = nr * NZ;
   const rowType = new Int8Array(NZ);   // 0 dome, 1 gap, 2 bowl
   for (let j = 0; j < NZ; j++) rowType[j] = j < nd ? 0 : j < nd + ng ? 1 : 2;
@@ -119,16 +134,25 @@ function psBuildGeometry(p) {
   for (let i = 0; i < nr; i++) recDepth[i] = recN[i] * dzRec;
   const valveBand = (c0, c1) => {
     const cells = [];
-    for (let i = 0; i < nr; i++) if (rc[i] >= c0 * R && rc[i] <= c1 * R) cells.push(i);
-    if (!cells.length) cells.push(Math.min(nr - 1, Math.round(0.5 * (c0 + c1) * nr)));
+    const a = Math.min(c0, c1) * R, b = Math.max(c0, c1) * R;
+    for (let i = 0; i < nr; i++) if (rc[i] >= a && rc[i] <= b) cells.push(i);
+    if (!cells.length) cells.push(Math.min(nr - 1, Math.max(0, Math.round((0.5 * (a + b) - x0) / dr))));
     return cells;
   };
+  // Planar: intake on the left, exhaust on the right, like a pent roof seen from the side.
+  const inBand = planar ? [-0.72, -0.2] : [0.46, 0.72], exBand = planar ? [0.2, 0.72] : [0.16, 0.40];
   return {
-    type, R, B: p.bore, Ac, Vd, Vc, hTdc, rRec, nRec, dzRec, recN, recDepth,
-    nr, dr, rw, rc, Az, nd, ng, nb, NZ, N, rowType, act,
-    exCols: valveBand(0.16, 0.40), inCols: valveBand(0.46, 0.72),
-    exR: 0.28 * R, inR: 0.59 * R,
+    type, planar, depth, x0, off, R, B: p.bore, Ac, Vd, Vc, hTdc, rRec, nRec, dzRec, recN, recDepth,
+    nr, dr, rw, rc, rs, Ar, Az, nd, ng, nb, NZ, N, rowType, act,
+    exCols: valveBand(...exBand), inCols: valveBand(...inBand),
+    exR: 0.5 * (exBand[0] + exBand[1]) * R, inR: 0.5 * (inBand[0] + inBand[1]) * R,
   };
+}
+
+// Column of position x (signed in the planar slice, radius in the axisymmetric one).
+function psColumn(g, x) {
+  if (!g.planar) x = Math.abs(x);
+  return Math.min(g.nr - 1, Math.max(0, Math.floor((x - g.x0) / g.dr)));
 }
 
 // Piston distance from TDC and its speed (m, m/s); ca in degrees.
@@ -256,17 +280,27 @@ class PSCylinder {
     let M = 0, Tm = 0, kk = 0, Lm = 0, I = 0, mF = 0, mP = 0, mb = 0, Tb = 0;
     for (let c = 0; c < g.N; c++) {
       if (!g.act[c]) continue;
-      const m = this.m[c], r = g.rc[(c / g.NZ) | 0];
+      const m = this.m[c], r = g.rs[(c / g.NZ) | 0];
       M += m; Tm += m * this.T[c]; kk += m * this.k[c]; Lm += this.mL[c]; I += m * r * r;
       mF += this.mF[c]; mP += this.mP[c];
       if (this.c[c] > 0.5) { mb += m; Tb += m * this.T[c]; }
     }
     const air = M - mF - mP;
     const liquid = this.liquidTotal || 0, film = this.filmTotal || 0;
+    // Tumble: angular momentum in the section plane about the gas centroid.
+    let xm = 0, ym = 0;
+    for (let c = 0; c < g.N; c++) if (g.act[c]) { const j = c % g.NZ; xm += this.m[c] * g.rc[(c / g.NZ) | 0]; ym += this.m[c] * (this.yTop[j] + 0.5 * this.dz[j]); }
+    xm /= M; ym /= M;
+    let Ht = 0, It = 0;
+    for (let c = 0; c < g.N; c++) {
+      if (!g.act[c]) continue;
+      const j = c % g.NZ, dx = g.rc[(c / g.NZ) | 0] - xm, dy = this.yTop[j] + 0.5 * this.dz[j] - ym;
+      Ht += this.m[c] * (dx * this.w[c] - dy * this.u[c]); It += this.m[c] * (dx * dx + dy * dy);
+    }
     const fuelAll = mF + liquid + film;
     return {
       p: this.p0, V: this.Vtot, M, T: Tm / M, Tu: this.Tu || Tm / M, Tb: mb > 0 ? Tb / mb : null,
-      u: Math.sqrt(2 / 3 * kk / M), swirl: I > 0 ? Lm / (I * this.omega) : 0,
+      u: Math.sqrt(2 / 3 * kk / M), swirl: I > 0 ? Lm / (I * this.omega) : 0, tumble: It > 0 ? Ht / (It * this.omega) : 0,
       vapor: mF, liquid, film, air, residual: mP / M,
       lambda: fuelAll > 0 ? air / (fuelAll * fuel.AFR) : Infinity, mfb: this.mfb || 0, usq: this.usq || 0,
       parcels: this.parcels.length, liftIn: this.liftIn || 0, liftEx: this.liftEx || 0, dt: this.dt,
@@ -318,9 +352,10 @@ class PSCylinder {
       this.mk[c] = m * k0;
       const i = (c / NZ) | 0;
       // Weak solid body swirl left from the intake.
-      this.mL[c] = m * g.rc[i] * g.rc[i] * this.omega * 0.6 * p.swirl;
+      this.mL[c] = m * g.rs[i] * g.rs[i] * this.omega * 0.6 * p.swirl;
     }
     this.derive();
+    this.initTracers(1500);
 
     this.exhaustRes = { YF: 0.0, YP: 1.0, T: 900 };
     this.intakeBuf = { m: 0, mF: 0, mP: 0, E: 0 };
@@ -382,7 +417,7 @@ class PSCylinder {
       this.T[c] = this.E[c] / (m * cp);
       this.rho[c] = this.p0 / (R * this.T[c]);
       const i = (c / g.NZ) | 0;
-      this.u[c] = this.mu[c] / m; this.w[c] = this.mw[c] / m; this.v[c] = this.mL[c] / (m * g.rc[i]);
+      this.u[c] = this.mu[c] / m; this.w[c] = this.mw[c] / m; this.v[c] = g.planar ? 0 : this.mL[c] / (m * g.rs[i]);
       this.k[c] = Math.max(this.mk[c] / m, 1e-4); this.c[c] = Math.min(1, Math.max(0, this.mc[c] / m));
     }
   }
@@ -411,9 +446,9 @@ class PSCylinder {
   // Cell at (r, y), or -1 inside a wall.
   cellAt(r, y) {
     const g = this.g;
-    if (r < 0) r = -r;
-    if (r >= g.R) return -1;
-    const i = Math.min(g.nr - 1, Math.floor(r / g.dr));
+    if (!g.planar && r < 0) r = -r;
+    if (r >= g.R || r < g.x0) return -1;
+    const i = psColumn(g, r);
     const yTop = this.yTop;
     if (y < yTop[0] || y >= yTop[g.NZ]) return -1;
     let lo = 0, hi = g.NZ - 1;
@@ -422,9 +457,112 @@ class PSCylinder {
     return g.act[c] ? c : -1;
   }
 
+  // ------------------------------------------------------------ tracers
+  // Massless markers that follow the gas plus a turbulent random walk, so the
+  // page can show how fresh charge and residual gas move and mix. Each one
+  // stands for the same mass: they enter with the intake and leave with the exhaust.
+
+  initTracers(count) {
+    const g = this.g;
+    this.tracers = [];
+    this.tracerMass = this.totalMass() / count;
+    this.tracerAcc = 0;
+    for (let c = 0; c < g.N; c++) {
+      if (!g.act[c]) continue;
+      let n = this.m[c] / this.tracerMass;
+      n = Math.floor(n) + (Math.random() < n % 1 ? 1 : 0);
+      for (let k = 0; k < n; k++) this.tracers.push(this.tracerIn(c, 1));
+    }
+  }
+
+  tracerIn(c, kind, top) {
+    const g = this.g, i = (c / g.NZ) | 0, j = c % g.NZ;
+    const y = top ? this.yTop[j] + 0.15 * this.dz[j] * Math.random() : this.yTop[j] + this.dz[j] * Math.random();
+    return { x: g.rw[i] + g.dr * Math.random(), y, kind, px: NaN, py: NaN };
+  }
+
+  velocityAt(x, y, c) {
+    // Bilinear between cell centres, over active cells only.
+    const g = this.g, NZ = g.NZ;
+    const u = (x - g.x0) / g.dr - 0.5;
+    let i0 = Math.floor(u), fx = u - i0;
+    if (i0 < 0) { i0 = 0; fx = 0; }
+    const j = c % NZ;
+    const yc = this.yTop[j] + 0.5 * this.dz[j];
+    let j0 = y >= yc ? j : j - 1;
+    if (j0 < 0) j0 = 0;
+    const y0 = this.yTop[j0] + 0.5 * this.dz[j0], y1 = j0 + 1 < NZ ? this.yTop[j0 + 1] + 0.5 * this.dz[j0 + 1] : y0 + 1;
+    const fy = Math.min(1, Math.max(0, (y - y0) / (y1 - y0)));
+    let su = 0, sw = 0, ww = 0;
+    for (let di = 0; di < 2; di++) for (let dj = 0; dj < 2; dj++) {
+      const ii = i0 + di, jj = j0 + dj;
+      if (ii >= g.nr || jj >= NZ) continue;
+      const cc = ii * NZ + jj;
+      if (!g.act[cc]) continue;
+      const wgt = (di ? fx : 1 - fx) * (dj ? fy : 1 - fy) + 1e-9;
+      su += wgt * this.u[cc]; sw += wgt * this.w[cc]; ww += wgt;
+    }
+    return ww > 0 ? [su / ww, sw / ww] : [this.u[c], this.w[c]];
+  }
+
+  moveTracers(dt) {
+    const g = this.g, Lm = this.tmpL;
+    for (const t of this.tracers) {
+      let c = this.cellAt(t.x, t.y);
+      if (c < 0) {
+        // The piston or a wall moved over it: put it back in the nearest cell.
+        c = this.nearestCell(t.x, t.y);
+        const j = c % g.NZ;
+        t.y = Math.min(Math.max(t.y, this.yTop[j] + 1e-6), this.yTop[j] + this.dz[j] - 1e-6);
+        const i = (c / g.NZ) | 0;
+        t.x = Math.min(Math.max(t.x, g.rw[i] + 1e-6), g.rw[i + 1] - 1e-6);
+      }
+      const [u, w] = this.velocityAt(t.x, t.y, c);
+      const nut = Lm ? 0.55 * Math.sqrt(this.k[c]) * Lm[c] : 0;
+      const sig = Math.sqrt(2 * nut * dt);
+      const gx = sig * (Math.random() + Math.random() + Math.random() - 1.5) * 2;
+      const gy = sig * (Math.random() + Math.random() + Math.random() - 1.5) * 2;
+      let nx = t.x + u * dt + gx, ny = t.y + w * dt + gy;
+      if (!g.planar && nx < 0) nx = -nx;
+      if (this.cellAt(nx, ny) < 0) {
+        // Slide along the wall: keep whichever component stays inside.
+        if (this.cellAt(nx, t.y) >= 0) ny = t.y;
+        else if (this.cellAt(t.x, ny) >= 0) nx = t.x;
+        else { nx = t.x; ny = t.y; }
+      }
+      t.x = nx; t.y = ny;
+    }
+  }
+
+  // Gas leaving through a valve takes the markers closest to it.
+  tracersOut(cols) {
+    if (!this.tracers) return;
+    const g = this.g;
+    const vx = g.rc[cols[(cols.length / 2) | 0]], vy = this.yTop[this.roofCell(cols[(cols.length / 2) | 0]) % g.NZ];
+    let excess = Math.round(this.tracers.length - this.totalMass() / this.tracerMass);
+    while (excess-- > 0 && this.tracers.length) {
+      let best = 0, bd = Infinity;
+      for (let k = 0; k < this.tracers.length; k++) {
+        const t = this.tracers[k], dx = (g.planar ? t.x : Math.abs(t.x)) - vx, dy = t.y - vy, d = dx * dx + dy * dy;
+        if (d < bd) { bd = d; best = k; }
+      }
+      this.tracers[best] = this.tracers[this.tracers.length - 1];
+      this.tracers.pop();
+    }
+  }
+
+  tracersIn(c, dm, kind) {
+    if (!this.tracers) return;
+    this.tracerAcc += dm;
+    while (this.tracerAcc >= this.tracerMass && this.tracers.length < 4000) {
+      this.tracerAcc -= this.tracerMass;
+      this.tracers.push(this.tracerIn(c, kind, true));
+    }
+  }
+
   nearestCell(r, y) {
     const g = this.g, NZ = g.NZ;
-    const i = Math.min(g.nr - 1, Math.max(0, Math.floor(Math.abs(r) / g.dr)));
+    const i = psColumn(g, r);
     let best = -1, bd = Infinity;
     for (let j = 0; j < NZ; j++) {
       const c = i * NZ + j;
@@ -493,7 +631,7 @@ class PSCylinder {
     for (let c = 0; c < N; c++) {
       if (!g.act[c]) continue;
       const i = (c / NZ) | 0;
-      this.u[c] += dt * this.v[c] * this.v[c] / g.rc[i];
+      if (g.rs[i] > 0) this.u[c] += dt * this.v[c] * this.v[c] / g.rs[i];
     }
 
     this.project(dt);
@@ -504,6 +642,7 @@ class PSCylinder {
     this.derive();
 
     this.ca = caNew; this.t += dt;
+    this.moveTracers(dt);
     this.bookkeeping(posOld, posNew, dt);
   }
 
@@ -519,7 +658,7 @@ class PSCylinder {
       const c = i * NZ + j;
       if (!act[c]) { a[c * W] = 1; continue; }
       if (i + 1 < nr && act[c + NZ]) {
-        const n = c + NZ, A = 2 * Math.PI * g.rw[i + 1] * dz[j];
+        const n = c + NZ, A = g.Ar[i + 1] * dz[j];
         const Fs = A * 0.5 * (this.u[c] + this.u[n]);
         const beta = A * dt / (0.5 * (this.rho[c] + this.rho[n]) * g.dr);
         Fe[c] = Fs; phi[c] -= Fs; phi[n] += Fs;
@@ -703,16 +842,21 @@ class PSCylinder {
           cells[n] = c;
           if (n > 0) {
             const pc = cells[n - 1];
-            const A = 2 * Math.PI * g.rw[i] * dz[j];
+            const A = g.Ar[i] * dz[j];
             G[n - 1] = 0.5 * (this.rho[pc] * nut[pc] + this.rho[c] * nut[c]) * A / g.dr;
           }
           walls[n] = null;
+          // West wall: the liner on the left of the planar slice, or a recess side wall.
+          if (n === 0 && (g.planar || i > 0)) {
+            const Aw = (g.planar ? g.depth : g.Ar[i]) * dz[j];
+            walls[0] = wallFor(c, Aw, typeSide, 0.5 * g.dr, typeSide === 2 ? this.vp : 0);
+          }
           n++;
         } else {
           if (n > 0) {
             const last = cells[n - 1], il = (last / NZ) | 0;
-            const A = 2 * Math.PI * g.rw[il + 1] * dz[j];
-            walls[n - 1] = wallFor(last, A, typeSide, 0.5 * g.dr, typeSide === 2 ? this.vp : 0);
+            const A = (g.planar ? g.depth : g.Ar[il + 1]) * dz[j];
+            walls[n - 1] = merge(walls[n - 1], wallFor(last, A, typeSide, 0.5 * g.dr, typeSide === 2 ? this.vp : 0));
             line(cells, n, G, walls);
           }
           n = 0;
@@ -751,7 +895,7 @@ class PSCylinder {
       const YF = Math.max(0, Y1[c]), YP = Math.max(0, Y2[c]);
       this.mF[c] = m * YF; this.mP[c] = m * Math.min(YP, 1 - YF);
       const i = (c / NZ) | 0;
-      this.mu[c] = m * this.u[c]; this.mw[c] = m * this.w[c]; this.mL[c] = m * this.v[c] * g.rc[i];
+      this.mu[c] = m * this.u[c]; this.mw[c] = m * this.w[c]; this.mL[c] = m * this.v[c] * g.rs[i];
       this.mk[c] = m * Math.max(this.k[c], 1e-4);
       const fuel = this.fuel, YA = 1 - YF - YP;
       const cp = YA * PS_AIR.cp + YP * PS_PROD.cp + YF * fuel.cpV;
@@ -773,8 +917,10 @@ class PSCylinder {
         if (!act[c]) continue;
         const yc = this.yTop[j] + 0.5 * dz[j];
         let yw = Math.min(yc - yT, yB - yc, g.R - g.rc[i]);
-        // radial walls of the recess
+        if (g.planar) yw = Math.min(yw, g.rc[i] + g.R);
+        // side walls of the recess
         if (i + 1 < g.nr && !act[c + NZ]) yw = Math.min(yw, g.rw[i + 1] - g.rc[i]);
+        if (i > 0 && !act[c - NZ]) yw = Math.min(yw, g.rc[i] - g.rw[i]);
         Lm[c] = Math.max(5e-5, Math.min(0.41 * yw, Lmax));
       }
     }
@@ -793,11 +939,11 @@ class PSCylinder {
       };
       const wall = d => { walls++; wallY = Math.min(wallY, 0.5 * d); };
       // Wall faces go through a wall function instead of the velocity jump.
-      if (i > 0) add(c - NZ, g.dr);
+      if (i > 0 && act[c - NZ]) add(c - NZ, g.dr); else if (g.planar || i > 0) wall(g.dr);
       if (i + 1 < nr && act[c + NZ]) add(c + NZ, g.dr); else wall(g.dr);
       if (j > 0 && act[c - 1]) add(c - 1, 0.5 * (dz[j] + dz[j - 1])); else wall(dz[j]);
       if (j + 1 < NZ && act[c + 1]) add(c + 1, 0.5 * (dz[j] + dz[j + 1])); else wall(dz[j]);
-      const u0 = this.u[c] / g.rc[i];
+      const u0 = g.rs[i] > 0 ? this.u[c] / g.rs[i] : 0;
       s2 += 2 * u0 * u0;
       const k = this.k[c], L = Lm[c];
       const nut = 0.55 * Math.sqrt(k) * L;
@@ -814,7 +960,9 @@ class PSCylinder {
   // ------------------------------------------------------------ sources
 
   sources(dt, posOld, posNew) {
+    this.pendingOut = null;
     this.valves(dt, posNew);
+    if (this.pendingOut) this.tracersOut(this.pendingOut);
     this.injection(dt, posOld, posNew);
     this.droplets(dt);
     this.filmEvaporation(dt);
@@ -824,7 +972,7 @@ class PSCylinder {
   addGas(c, dm, YF, YP, T, cp, ux, uy, vt, k) {
     const i = (c / this.g.NZ) | 0;
     this.m[c] += dm; this.mF[c] += dm * YF; this.mP[c] += dm * YP; this.E[c] += dm * cp * T;
-    this.mu[c] += dm * ux; this.mw[c] += dm * uy; this.mL[c] += dm * vt * this.g.rc[i]; this.mk[c] += dm * k;
+    this.mu[c] += dm * ux; this.mw[c] += dm * uy; this.mL[c] += dm * vt * this.g.rs[i]; this.mk[c] += dm * k;
   }
 
   removeGas(c, dm) {
@@ -897,6 +1045,7 @@ class PSCylinder {
         let dm = psOrifice(Cd, A, p.pExhaust, er.T, R, cp / (cp - R), p0) * dt;
         dm = Math.min(dm, limit(p.pExhaust));
         const U = dm / dt / (p.pExhaust / (R * er.T) * A);
+        this.inflowKind = 0;
         this.spreadInflow(g.exCols, dm, er.YF, er.YP, er.T, cp, U, -1);
       }
     }
@@ -914,6 +1063,7 @@ class PSCylinder {
       const c = this.roofCell(i);
       if (c < 0) continue;
       this.addGas(c, dm * g.Az[i] / At, YF, YP, T, cp, ux, uy, vt, k);
+      this.tracersIn(c, dm * g.Az[i] / At, this.inflowKind);
     }
   }
 
@@ -925,12 +1075,14 @@ class PSCylinder {
       const YF = buf.mF / buf.m, YP = buf.mP / buf.m;
       const cpb = (1 - YF - YP) * PS_AIR.cp + YP * PS_PROD.cp + YF * fuel.cpV;
       const T = buf.E / (buf.m * cpb);
+      this.inflowKind = 0;
       this.spreadInflow(cols, take, YF, YP, T, cpb, U, 1);
       buf.m -= take; buf.mF -= buf.mF * s; buf.mP -= buf.mP * s; buf.E -= buf.E * s;
       if (buf.m < 1e-12) buf.m = buf.mF = buf.mP = buf.E = 0;
       dm -= take;
     }
     if (dm <= 0) return;
+    this.inflowKind = 1;
     this.spreadInflow(cols, dm, YFfresh, 0, p.tIntake, cp, U, 1);
     const air = dm * (1 - YFfresh);
     this.stats.fuelIn += dm * YFfresh;
@@ -944,6 +1096,7 @@ class PSCylinder {
 
   extractThroughValve(cols, dm, sink) {
     const g = this.g;
+    this.pendingOut = cols;
     let At = 0;
     for (const i of cols) At += g.Az[i];
     for (const i of cols) {
@@ -977,7 +1130,7 @@ class PSCylinder {
       if (fuel.liquid) this.spawnLiquid(dm, 'injector', this.inj.U);
       else {
         // Gas injection: fuel vapour jet from the injector.
-        const c = this.roofCell(0);
+        const c = this.roofCell(psColumn(this.g, this.injectorX()));
         if (c >= 0) this.addGas(c, dm, 1, 0, 300, fuel.cpV, 0, Math.min(this.inj.U, 300), 0, 10);
       }
       if (this.inj.left <= 0) this.stats.eoiCa = this.ca;
@@ -1001,10 +1154,13 @@ class PSCylinder {
         d = p.diDrop * Math.pow(-Math.log(1 - 0.98 * rr), 1 / 3.0) * 0.9;
         const cone = 0.5 * p.diCone * PS_DEG * (0.85 + 0.3 * Math.random());
         const Ui = U * (0.8 + 0.2 * Math.random());
-        r = 0.0005 + 0.0005 * Math.random();
-        const c0 = this.roofCell(0);
-        y = this.yTop[c0 - 0] + 0.0004;
-        u = Ui * Math.sin(cone); w = Ui * Math.cos(cone); vt = 0; T = 330;
+        const x0 = this.injectorX();
+        const c0 = this.roofCell(psColumn(g, x0));
+        y = this.yTop[c0 % g.NZ] + 0.0004;
+        // Hollow cone: a ring in the axisymmetric section, two sheets in the planar slice.
+        const side = g.planar && Math.random() < 0.5 ? -1 : 1;
+        r = x0 + side * 0.0005 * Math.random();
+        u = side * Ui * Math.sin(cone); w = Ui * Math.cos(cone); vt = 0; T = 330;
       } else {
         d = p.pfiDrop * Math.pow(-Math.log(1 - 0.98 * rr), 1 / 3.0) * 0.9;
         const i = g.inCols[(Math.random() * g.inCols.length) | 0];
@@ -1012,7 +1168,7 @@ class PSCylinder {
         const c0 = this.roofCell(i);
         y = this.yTop[c0 - i * g.NZ] + 0.0003;
         const ja = p.jetAngle * PS_DEG;
-        u = 0.5 * U * Math.sin(ja); w = 0.5 * U * Math.cos(ja); vt = 0.5 * U * p.swirl; T = p.tIntake;
+        u = 0.5 * U * Math.sin(ja); w = 0.5 * U * Math.cos(ja); vt = g.planar ? 0 : 0.5 * U * p.swirl; T = p.tIntake;
       }
       d = Math.max(3e-6, d);
       const md = fuel.rhoL * Math.PI * d * d * d / 6;
@@ -1091,16 +1247,16 @@ class PSCylinder {
       q.u += dt * q.vt * q.vt / Math.max(q.r, 1e-4);
       const nr = q.r + q.u * dt, ny = q.y + q.w * dt;
       let cr = nr;
-      if (cr < 0) { cr = -cr; q.u = -q.u; }
+      if (cr < 0 && !g.planar) { cr = -cr; q.u = -q.u; }
       const cn = this.cellAt(cr, ny);
       if (cn < 0) {
         // Wall impingement: the drop joins the film of the cell it came from.
         this.film[c] += q.n * fuel.rhoL * Math.PI * q.d ** 3 / 6;
-        this.filmWall[c] = ny < this.yTop[c % NZ] ? 0 : (cr >= g.R - 1e-9 ? 1 : 2);
+        this.filmWall[c] = ny < this.yTop[c % NZ] ? 0 : (Math.abs(cr) >= g.R - 1e-9 ? 1 : 2);
         q.alive = false;
         continue;
       }
-      q.vt *= q.r / Math.max(cr, 1e-5);
+      if (!g.planar) q.vt *= q.r / Math.max(cr, 1e-5);
       q.r = cr; q.y = ny;
       keep.push(q);
     }
@@ -1228,7 +1384,9 @@ class PSCylinder {
         const fq = Math.min(1, Math.max(0, (H - 2 * dq) / (2 * dq)));
         if (fq <= 0) continue;
         const up = Math.sqrt(2 / 3 * this.k[c]);
-        const St = p.flameFactor * fq * Sl * (1 + 2.0 * fk * Math.pow(up / Sl, 0.7));
+        // In the planar slice the flame grows as a cylinder, not a sphere, so it gets a
+        // fixed boost that brings burn durations back to engine values.
+        const St = p.flameFactor * (g.planar ? 1.3 : 1) * fq * Sl * (1 + 2.0 * fk * Math.pow(up / Sl, 0.7));
         const dl = Math.min(g.dr, 0.5 * (dz[j] + (j + 1 < NZ ? dz[j + 1] : dz[j])));
         SmaxDl = Math.max(SmaxDl, St / Math.min(dl, dz[j]));
         const dc = Math.min(1 - ci, St * grad * dt);
@@ -1284,11 +1442,15 @@ class PSCylinder {
     this.frontLimit = SmaxDl;
   }
 
+  // Spark plug and injector sit on the axis (or at sparkX in the planar slice).
+  sparkX() { return this.g.planar ? (this.p.sparkX || 0) * this.g.R : 0.3 * this.g.dr; }
+  injectorX() { return this.g.planar ? this.sparkX() + 0.0025 : 0.0005; }
+
   sparkCell() {
-    const g = this.g, c0 = this.roofCell(0);
+    const g = this.g, x = this.sparkX(), i = psColumn(g, x), c0 = this.roofCell(i);
     if (c0 < 0) return -1;
-    const y = this.yTop[c0] + Math.min(0.003, 0.35 * this.Hcol[0]);
-    return this.cellAt(0.3 * g.dr, y);
+    const y = this.yTop[c0 % g.NZ] + Math.min(0.003, 0.35 * this.Hcol[i]);
+    return this.cellAt(x, y);
   }
 
   // ------------------------------------------------------------ diagnostics
@@ -1309,10 +1471,15 @@ class PSCylinder {
     // squish velocity: mean radial velocity through the face at the recess edge
     let usq = 0;
     if (g.type !== 'plana') {
-      const iEdge = Math.max(0, Math.min(g.nr - 2, Math.round(g.rRec / g.dr) - 1));
+      // Mean speed toward the recess through the faces at its edges, gap rows only.
       let F = 0, A = 0;
-      for (let j = g.nd; j < g.nd + g.ng; j++) { const c = iEdge * g.NZ + j; F += this.Fe[c]; A += 2 * Math.PI * g.rw[iEdge + 1] * this.dz[j]; }
-      usq = A > 0 ? -F / A : 0;
+      for (let i = 0; i + 1 < g.nr; i++) {
+        const a = g.recN[i] > 0, b = g.recN[i + 1] > 0;
+        if (a === b) continue;
+        const sign = a ? -1 : 1;
+        for (let j = g.nd; j < g.nd + g.ng; j++) { F += sign * this.Fe[i * g.NZ + j]; A += g.Ar[i + 1] * this.dz[j]; }
+      }
+      usq = A > 0 ? F / A : 0;
     }
     this.usq = usq;
     if (usq > st.sqMax) st.sqMax = usq;
@@ -1374,6 +1541,7 @@ class PSCylinder {
     st.imepGross = st.workGross / g.Vd;
     st.efficiency = st.fuelIn > 0 ? st.workGross / (st.fuelIn * fuel.LHV) : 0;
     st.combustionEff = st.fuelIn > 0 ? st.qComb / (st.fuelIn * fuel.LHV) : 0;
+    st.knockShare = st.fuelIn > 0 ? st.knockFrac / st.fuelIn : 0;   // share of the fuel that autoignited
     const rhoRef = p.pIntake / (PS_AIR.R * p.tIntake);
     st.volEff = st.airTrapped / (rhoRef * g.Vd);
     st.cycle = this.cycleCount;
@@ -1387,6 +1555,7 @@ class PSCylinder {
     // New cycle: clear the flame state.
     for (let c = 0; c < g.N; c++) { this.mc[c] = 0; this.flame[c] = 0; this.mik[c] = 0; }
     this.ignited = false; this.knockActive = false; this.inj = null;
+    for (const t of this.tracers) t.kind = 0;
     this.fuelAtSpark = 0;
   }
 

@@ -2,6 +2,10 @@
 const assert = require('assert');
 const P = require('../Piston-Sim-Physics.js');
 
+// The checks against textbook axisymmetric results use the axisymmetric section.
+const AXI = { section: 'axial', chamber: 'cupula', jetAngle: 35, spark: 18 };
+const axi = extra => Object.assign({}, AXI, extra);
+
 const check = (name, fn) => {
   const t0 = Date.now();
   fn();
@@ -38,16 +42,16 @@ check('banded Cholesky solves a banded SPD system', () => {
 });
 
 check('chamber volume matches the compression ratio', () => {
-  for (const chamber of ['cupula', 'bowl', 'plana']) {
-    const sim = new P.PSCylinder({ chamber });
+  for (const [section, chamber] of [['axial', 'cupula'], ['axial', 'bowl'], ['axial', 'plana'], ['plano', 'techo'], ['plano', 'cupula'], ['plano', 'bowl']]) {
+    const sim = new P.PSCylinder({ section, chamber, chamberOffset: section === 'plano' ? 0.3 : 0 });
     const g = sim.g, Vtdc = sim.geometryAt(0), Vbdc = sim.geometryAt(180);
-    assert(Math.abs((Vbdc - Vtdc) / g.Vd - 1) < 1e-9, `${chamber}: swept volume`);
+    assert(Math.abs((Vbdc - Vtdc) / g.Vd - 1) < 1e-9, `${section} ${chamber}: swept volume`);
     assert(Math.abs(Vbdc / Vtdc / sim.p.cr - 1) < 1e-9, `${chamber}: ratio ${Vbdc / Vtdc}`);
   }
 });
 
 check('motored compression is isentropic and conserves mass', () => {
-  const sim = new P.PSCylinder({ lambda: 1e9, heatTransfer: 0, spark: -100 });
+  const sim = new P.PSCylinder(axi({ lambda: 1e9, heatTransfer: 0, spark: -100 }));
   const M0 = sim.totalMass(), p0 = sim.p0, V0 = sim.Vtot;
   let cp = 0, R = 0;
   for (let c = 0; c < sim.g.N; c++) if (sim.g.act[c]) { cp += sim.m[c] * sim.cp[c]; R += sim.m[c] * sim.R[c]; }
@@ -59,7 +63,7 @@ check('motored compression is isentropic and conserves mass', () => {
 });
 
 check('first law over the closed part of the cycle', () => {
-  const sim = new P.PSCylinder({ heatTransfer: 0, injection: 'puerto' });
+  const sim = new P.PSCylinder(axi({ heatTransfer: 0, injection: 'puerto' }));
   sim.derive();
   const U0 = internalEnergy(sim);
   let W = 0;
@@ -90,7 +94,7 @@ check('laminar flame speed and ignition delay correlations', () => {
 });
 
 check('squish velocity is close to the Heywood estimate', () => {
-  const sim = new P.PSCylinder({ lambda: 1e9, spark: -100 });
+  const sim = new P.PSCylinder(axi({ lambda: 1e9, spark: -100 }));
   runTo(sim, -10);
   const g = sim.g;
   const Vrec = g.Vc - g.Ac * g.hTdc;
@@ -100,7 +104,7 @@ check('squish velocity is close to the Heywood estimate', () => {
 });
 
 check('fuel is conserved through injection, evaporation and wall film', () => {
-  const sim = new P.PSCylinder({ injection: 'directa', diSoi: 120, spark: 0 });
+  const sim = new P.PSCylinder(axi({ injection: 'directa', diSoi: 120, spark: 0 }));
   let vap0 = 0;
   for (let c = 0; c < sim.g.N; c++) if (sim.g.act[c]) vap0 += sim.mF[c];
   runTo(sim, -60);
@@ -115,7 +119,7 @@ check('fuel is conserved through injection, evaporation and wall film', () => {
 });
 
 check('a full firing cycle gives sensible engine numbers', () => {
-  const sim = new P.PSCylinder({});
+  const sim = new P.PSCylinder(axi({}));
   while (sim.history.length < 2) { sim.step(); assert(isFinite(sim.p0), 'pressure finite'); }
   const st = sim.history[1];
   assert(st.imep > 8e5 && st.imep < 13e5, `IMEP ${st.imep}`);
@@ -128,7 +132,25 @@ check('a full firing cycle gives sensible engine numbers', () => {
 });
 
 check('advanced spark with low octane knocks', () => {
-  const sim = new P.PSCylinder({ cr: 12.5, spark: 38, octane: 87 });
+  const sim = new P.PSCylinder(axi({ cr: 12.5, spark: 38, octane: 87 }));
   while (sim.history.length < 1) sim.step();
   assert(sim.history[0].knockCa, 'knock detected');
+});
+
+check('the planar slice builds tumble and burns like an engine', () => {
+  const sim = new P.PSCylinder({});
+  let tumble = 0;
+  while (sim.history.length < 2) {
+    sim.step();
+    assert(isFinite(sim.p0), 'pressure finite');
+    const cyc = sim.cycleAngle();
+    if (sim.history.length === 1 && cyc > -200 && cyc < -160) tumble = Math.max(tumble, sim.diagnostics().tumble);
+  }
+  const st = sim.history[1];
+  assert(tumble > 0.4, `tumble ratio near BDC ${tumble}`);
+  assert(st.imep > 8e5 && st.imep < 13e5, `IMEP ${st.imep}`);
+  assert(st.combustionEff > 0.9, `combustion efficiency ${st.combustionEff}`);
+  assert(st.mfb50 > -5 && st.mfb50 < 15, `MFB50 ${st.mfb50}`);
+  assert(!st.knockCa || st.knockShare < 0.01, `knock share ${st.knockShare}`);
+  assert(Math.abs(sim.tracers.length * sim.tracerMass / sim.totalMass() - 1) < 0.3, 'tracers follow the gas mass');
 });
