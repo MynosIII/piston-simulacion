@@ -152,7 +152,7 @@ const PSUI = (() => {
       this.sim = new PSCylinder(this.params);
       this.running = true;
       this.speed = 40;           // crank degrees per second of wall time
-      this.view = { field: 'temperatura', arrows: true, drops: true, front: true, zoom: true };
+      this.view = { field: 'temperatura', arrows: true, drops: true, front: true, zoom: false };
       this.colL = null; this.colR = null;
       this.last = performance.now();
       this.simRate = 0;
@@ -438,6 +438,14 @@ const PSUI = (() => {
       if (!this.view.zoom || true) ctx.textBaseline = 'alphabetic';
       ctx.fillText('ADM', X(g.inR), Y(yHeadTop) + 13); ctx.fillText('ADM', X(-g.inR), Y(yHeadTop) + 13);
       ctx.fillText('ESC', X(g.exR), Y(yHeadTop) + 13); ctx.fillText('ESC', X(-g.exR), Y(yHeadTop) + 13);
+      // In zoom the window ends below the chamber: say where the piston went.
+      if (this.view.zoom && this.Y(sim.h) > L.H - 4) {
+        const fade = ctx.createLinearGradient(0, L.H - 36, 0, L.H);
+        fade.addColorStop(0, 'rgba(14,16,18,0)'); fade.addColorStop(1, 'rgba(14,16,18,0.9)');
+        ctx.fillStyle = fade; ctx.fillRect(X(-R), L.H - 36, 2 * R * s, 36);
+        ctx.fillStyle = '#e6e8e9'; ctx.font = '600 12px system-ui, sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(`El pistón está ${((sim.h - g.hTdc) * 1000).toFixed(0)} mm bajo el PMS, fuera de la vista ↓ (sacá el zoom)`, X(0), L.H - 10);
+      }
       // Crank inset
       this.drawCrankInset();
     }
@@ -460,10 +468,6 @@ const PSUI = (() => {
         ctx.lineTo(x0 + 0.0014 * s, Y(roof + lift - 0.0025));
         ctx.lineTo(x0 - 0.0014 * s, Y(roof + lift - 0.0025));
         ctx.closePath(); ctx.fill();
-        if (lift > 1e-4) {
-          ctx.fillStyle = 'rgba(20, 24, 28, 0.9)';
-          ctx.fillRect(x0 - halfW * s, Y(roof) - 1, 2 * halfW * s, Math.max(1, lift * s * 0.15));
-        }
       }
     }
 
