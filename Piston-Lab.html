@@ -2042,7 +2042,7 @@ const PSUI = (() => {
       const yMin = -(g.nd * g.dzRec) - head;
       const yMax = this.view.zoom ? g.hTdc + g.nb * g.dzRec + Math.max(0.3 * p.stroke, 0.012) : g.hTdc + p.stroke + 0.62 * p.bore;
       const wPhys = p.bore + 2 * wall + 0.012, hPhys = yMax - yMin;
-      const s = Math.min(cssW / wPhys, (this.view.zoom ? 520 : 680) / hPhys);
+      const s = Math.min(cssW / wPhys, (this.view.zoom ? 560 : 860) / hPhys);
       const cssH = Math.round(hPhys * s);
       const dpr = Math.min(2, window.devicePixelRatio || 1);
       cv.style.width = `${Math.round(wPhys * s)}px`; cv.style.height = `${cssH}px`;
