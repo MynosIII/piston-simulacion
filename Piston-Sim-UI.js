@@ -194,7 +194,8 @@ const PSUI = (() => {
       this.sim = new PSCylinder(this.params);
       this.running = true;
       this.speed = 40;           // crank degrees per second of wall time
-      this.view = { field: 'temperatura', field2: 'composicion', arrows: true, relative: true, tracers: true, drops: true, front: true, zoom: false };
+      this.view = { field: 'composicion', split: 'nada', arrows: false, relative: true, tracers: true, drops: true, front: true, zoom: false, top: true };
+      this.phIn = 0; this.phEx = 0;
       this.colL = null; this.colR = null;
       this.last = performance.now();
       this.simRate = 0;
@@ -223,13 +224,16 @@ const PSUI = (() => {
 
       // view toolbar
       const tools = $('#view-tools');
-      const sel = (key, label) => h('select', { class: 'sel', 'aria-label': label, onchange: e => { this.view[key] = e.target.value; this.drawLegend(); } },
-        Object.entries(FIELDS).map(([k, f]) => h('option', { value: k, selected: k === this.view[key] }, f.label)));
-      const chk = (key, label) => h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: this.view[key], onchange: e => { this.view[key] = e.target.checked; this.drawLegend(); if (key === 'zoom') { this.resize(); this.draw(); } } }), label);
-      this.fieldLabel = h('span', { class: 'muted' });
-      this.selLeft = sel('field2', 'Campo izquierdo'); this.selRight = sel('field', 'Campo derecho');
-      tools.append(this.fieldLabel, this.selLeft, this.selRight, chk('tracers', 'Trazadores'), chk('arrows', 'Flechas'), chk('relative', 'Sin el pistón'),
+      const opts = (extra, key) => [...extra, ...Object.entries(FIELDS)].map(([k, f]) => h('option', { value: k, selected: k === this.view[key] }, f.label));
+      const sel = (key, label, extra = []) => h('select', { class: 'sel', 'aria-label': label, onchange: e => { this.view[key] = e.target.value; this.drawLegend(); this.draw(); } }, opts(extra, key));
+      const chk = (key, label) => h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: this.view[key], onchange: e => { this.view[key] = e.target.checked; this.drawLegend(); if (key === 'zoom' || key === 'top') { this.resize(); } this.draw(); } }), label);
+      this.selMain = sel('field', 'Campo');
+      this.selSplit = sel('split', 'Mitad derecha', [['nada', { label: 'Nada' }]]);
+      tools.append(h('span', { class: 'muted' }, 'Campo:'), this.selMain, h('span', { class: 'muted' }, 'Mitad derecha:'), this.selSplit,
+        chk('top', 'Vista desde arriba'), chk('tracers', 'Trazadores'), chk('arrows', 'Flechas'), chk('relative', 'Sin el pistón'),
         chk('drops', 'Gotas'), chk('front', 'Frente'), chk('zoom', 'Zoom en la cámara'));
+      this.topCv = $('#top'); this.topCtx = this.topCv.getContext('2d');
+      this.topOff = document.createElement('canvas'); this.topOffCtx = this.topOff.getContext('2d');
       this.cv = $('#cyl'); this.ctx = this.cv.getContext('2d');
       this.off = document.createElement('canvas'); this.offCtx = this.off.getContext('2d');
       this.plots = { p: $('#plot-p'), pv: $('#plot-pv'), hrr: $('#plot-hrr'), fuel: $('#plot-fuel') };
@@ -303,9 +307,7 @@ const PSUI = (() => {
     }
 
     updateToolbar() {
-      if (!this.fieldLabel) return;
-      const planar = this.sim.g.planar;
-      this.fieldLabel.textContent = planar ? 'Mitad izquierda / derecha:' : 'Izquierda / derecha (espejo):';
+      if (!this.selMain) return;
       this.drawLegend();
     }
 
@@ -315,6 +317,10 @@ const PSUI = (() => {
     frame(t) {
       const dtw = Math.min(0.1, (t - this.last) / 1000);
       this.last = t;
+      if (this.running) {
+        this.phIn += (this.sim.mdotIn || 0) * 2500 * dtw;
+        this.phEx += (this.sim.mdotEx || 0) * 2500 * dtw;
+      }
       if (this.running) {
         const ca0 = this.sim.ca;
         this.sim.advance(Math.max(0.05, this.speed * dtw), 14);
@@ -332,7 +338,7 @@ const PSUI = (() => {
       const wrap = cv.parentElement;
       const cssW = Math.max(280, Math.min(wrap.clientWidth, 760));
       // Physical window: head to a little below the piston at BDC, or just the chamber.
-      const head = this.view.zoom ? 0.008 : 0.02, wall = 0.009;
+      const head = this.view.zoom ? 0.022 : 0.034, wall = 0.009;
       const yMin = -(g.nd * g.dzRec) - head;
       const yMax = this.view.zoom ? g.hTdc + g.nb * g.dzRec + Math.max(0.3 * p.stroke, 0.012) : g.hTdc + p.stroke + 0.62 * p.bore;
       const wPhys = p.bore + 2 * wall + 0.012, hPhys = yMax - yMin;
@@ -357,6 +363,8 @@ const PSUI = (() => {
     draw() {
       const sim = this.sim;
       this.drawCylinder();
+      this.topCv.parentElement.classList.toggle('off', !this.view.top);
+      if (this.view.top) this.drawTop();
       this.drawPlots();
       this.drawReadouts();
       const pos = sim.cycleAngle();
@@ -403,6 +411,9 @@ const PSUI = (() => {
       ctx.restore();
       ctx.fillStyle = '#9aa3ac'; ctx.beginPath(); ctx.arc(X(0), Y(pinY), pinR * s, 0, 2 * Math.PI); ctx.fill();
       ctx.fillStyle = metalDark; ctx.beginPath(); ctx.arc(X(0), Y(pinY), pinR * 0.55 * s, 0, 2 * Math.PI); ctx.fill();
+
+      // Intake and exhaust ports in the head
+      this.drawPorts();
 
       // Gas
       this.drawGas();
@@ -473,8 +484,8 @@ const PSUI = (() => {
       if (this.view.arrows) this.drawArrows();
 
       // Valves
-      this.drawValve(g.inR, sim.liftIn || 0, '#6c8fb3', p.ivDiam);
-      this.drawValve(g.exR, sim.liftEx || 0, '#b37a6c', p.evDiam);
+      this.drawValve('in');
+      this.drawValve('ex');
       // Spark plug
       const sx = g.planar ? sim.sparkX() : 0, si = psColumn(g, sx);
       const roofY = sim.yTop[sim.roofCell(si) % g.NZ];
@@ -501,7 +512,10 @@ const PSUI = (() => {
       // Labels
       ctx.font = '600 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#c7ced4';
       if (!this.view.zoom || true) ctx.textBaseline = 'alphabetic';
-      for (const sg of sides) { ctx.fillText('ADM', X(sg * g.inR), Y(yHeadTop) + 13); ctx.fillText('ESC', X(sg * g.exR), Y(yHeadTop) + 13); }
+      ctx.textAlign = 'left'; ctx.fillText('ADMISIÓN', X(-R - L.wall) + 4, Y(yHeadTop) + 13);
+      ctx.textAlign = 'right'; ctx.fillText(g.planar ? 'ESCAPE' : 'ADMISIÓN', X(R + L.wall) - 4, Y(yHeadTop) + 13);
+      if (!g.planar) { ctx.textAlign = 'center'; ctx.fillText('escape al centro', X(0), Y(yHeadTop) + 13); }
+      ctx.textAlign = 'center';
       // In zoom the window ends below the chamber: say where the piston went.
       if (this.view.zoom && this.Y(sim.h) > L.H - 4) {
         const fade = ctx.createLinearGradient(0, L.H - 36, 0, L.H);
@@ -514,25 +528,218 @@ const PSUI = (() => {
       this.drawCrankInset();
     }
 
-    drawValve(r, lift, color, diamFrac) {
-      const { ctx, sim, L } = this, g = sim.g, s = L.s;
-      const X = rr => this.X(rr), Y = y => this.Y(y);
-      const i = psColumn(g, r);
-      const roof = sim.yTop[sim.roofCell(i) % g.NZ];
-      const halfW = Math.min(g.planar ? 0.22 * g.R : 0.12 * g.R, 0.25 * diamFrac * g.B);
-      for (const sg of g.planar ? [1] : [-1, 1]) {
-        const x0 = X(sg * r);
-        ctx.fillStyle = color;
-        // stem
-        ctx.fillRect(x0 - 0.0011 * s, Y(L.yMin), 0.0022 * s, (roof + lift - L.yMin) * s);
-        // head
-        ctx.beginPath();
-        ctx.moveTo(x0 - halfW * s, Y(roof + lift));
-        ctx.lineTo(x0 + halfW * s, Y(roof + lift));
-        ctx.lineTo(x0 + 0.0014 * s, Y(roof + lift - 0.0025));
-        ctx.lineTo(x0 - 0.0014 * s, Y(roof + lift - 0.0025));
-        ctx.closePath(); ctx.fill();
+    // Seat centre on the roof, stem axis (unit, pointing up into the head) and size of a valve.
+    valveGeom(kind, side) {
+      const sim = this.sim, g = sim.g, p = sim.p;
+      const x = (kind === 'in' ? g.inR : g.exR) * side;
+      const D = (kind === 'in' ? p.ivDiam : p.evDiam) * g.B;
+      const depth = g.nd ? g.nRec * g.dzRec : 0;
+      const roof = xx => -depth * recessShape(g, g.planar ? xx : Math.abs(xx));
+      const slope = (roof(x + 1e-4) - roof(x - 1e-4)) / 2e-4;
+      const nl = Math.hypot(slope, 1);
+      // Stems lean so the valve face lies in the roof surface.
+      return { x, y: roof(x), D, t: [1 / nl, slope / nl], n: [slope / nl, -1 / nl],
+        lift: kind === 'in' ? sim.liftIn || 0 : sim.liftEx || 0, lmax: kind === 'in' ? p.ivLift : p.evLift };
+    }
+
+    portGas(kind) {
+      const sim = this.sim, p = sim.p;
+      if (kind === 'in') {
+        const fresh = p.injection === 'puerto' ? C_MIX : C_AIR;
+        const back = clamp(sim.intakeBuf.m / 2e-5, 0, 1);
+        return mix(fresh, C_GAS, back);
       }
+      const er = sim.exhaustRes;
+      return mix(C_GAS, [230, 110, 40], clamp((er.T - 650) / 700, 0, 0.8));
+    }
+
+    drawPorts() {
+      const { ctx, sim, L } = this, g = sim.g, s = L.s;
+      const X = r => this.X(r), Y = y => this.Y(y);
+      const yHead = L.yMin;
+      const kinds = g.planar ? [['in', 1], ['ex', 1]] : [['in', -1], ['in', 1], ['ex', -1], ['ex', 1]];
+      for (const [kind, side] of kinds) {
+        const v = this.valveGeom(kind, side);
+        // From the seat up the stem axis, then a bend out to the side of the head.
+        const outSide = g.planar ? (kind === 'in' ? -1 : 1) : side;
+        const x0 = v.x, y0 = v.y;
+        const x1 = x0 + v.n[0] * 0.55 * v.D, y1 = y0 + v.n[1] * 0.55 * v.D;
+        const yExit = Math.max(yHead + 0.45 * v.D, y1 - 0.5 * v.D);
+        const xExit = kind === 'ex' && !g.planar ? 0 : outSide * (g.R + L.wall + 0.01);
+        const col = this.portGas(kind);
+        ctx.save();
+        ctx.lineCap = 'butt'; ctx.lineJoin = 'round';
+        const path = () => {
+          ctx.beginPath(); ctx.moveTo(X(x0), Y(y0));
+          ctx.lineTo(X(x1), Y(y1));
+          if (kind === 'ex' && !g.planar) ctx.lineTo(X(x1), Y(yHead - 0.01));
+          else ctx.quadraticCurveTo(X(x1 + v.n[0] * 0.4 * v.D), Y(yExit), X(xExit), Y(yExit));
+        };
+        ctx.strokeStyle = '#59616a'; ctx.lineWidth = (0.92 * v.D + 0.003) * s; path(); ctx.stroke();
+        ctx.strokeStyle = `rgb(${col.map(Math.round).join(',')})`; ctx.lineWidth = 0.92 * v.D * s; path(); ctx.stroke();
+        // Flow streaks move with the mass flow through the valve.
+        const ph = kind === 'in' ? this.phIn : this.phEx;
+        if (Math.abs(kind === 'in' ? sim.mdotIn : sim.mdotEx) > 1e-5) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = Math.max(1, 0.12 * v.D * s);
+          ctx.setLineDash([6, 10]); ctx.lineDashOffset = kind === 'in' ? -ph : ph;
+          path(); ctx.stroke(); ctx.setLineDash([]);
+        }
+        ctx.restore();
+      }
+    }
+
+    drawValve(kind) {
+      const { ctx, sim, L } = this, g = sim.g, s = L.s;
+      // Steel valves; the exhaust one darkened by heat.
+      const color = kind === 'in' ? '#c3cad1' : '#a99c95', dark = kind === 'in' ? '#7d8790' : '#6f625b';
+      for (const side of g.planar ? [1] : [-1, 1]) {
+        const v = this.valveGeom(kind, side);
+        const r = v.D / 2, rs = Math.max(0.0024, 0.09 * v.D);
+        // Local frame: a across the valve, b up the stem; the valve drops by its lift.
+        const ox = v.x - v.n[0] * v.lift, oy = v.y - v.n[1] * v.lift;
+        const stem = (oy - L.yMin) / -v.n[1] + 0.005;
+        ctx.save();
+        ctx.translate(this.X(ox), this.Y(oy));
+        ctx.transform(v.t[0] * s, v.t[1] * s, v.n[0] * s, v.n[1] * s, 0, 0);
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(-r, 0); ctx.lineTo(r, 0);
+        ctx.lineTo(r, 0.0011);                       // margin
+        ctx.lineTo(r - 0.0019, 0.0030);               // 45 degree seat face
+        ctx.quadraticCurveTo(rs + 0.0016, 0.0045, rs, 0.011);   // tulip
+        ctx.lineTo(rs, stem); ctx.lineTo(-rs, stem);
+        ctx.lineTo(-rs, 0.011);
+        ctx.quadraticCurveTo(-rs - 0.0016, 0.0045, -(r - 0.0019), 0.0030);
+        ctx.lineTo(-r, 0.0011); ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = dark;                         // seat face shading
+        ctx.beginPath(); ctx.moveTo(r, 0.0011); ctx.lineTo(r - 0.0019, 0.0030); ctx.lineTo(r - 0.0024, 0.0026); ctx.lineTo(r - 0.0005, 0.0009); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(-r, 0.0011); ctx.lineTo(-(r - 0.0019), 0.0030); ctx.lineTo(-(r - 0.0024), 0.0026); ctx.lineTo(-(r - 0.0005), 0.0009); ctx.closePath(); ctx.fill();
+        // Guide, spring seat and retainer near the top of the stem
+        const gb = 0.6 * v.D + 0.004 + v.lift;
+        ctx.fillStyle = 'rgba(30,34,38,0.55)';
+        ctx.fillRect(-rs - 0.0009, gb, 2 * rs + 0.0018, 0.010);
+        ctx.restore();
+        // Seat inserts stay in the roof
+        ctx.save();
+        ctx.translate(this.X(v.x), this.Y(v.y));
+        ctx.transform(v.t[0] * s, v.t[1] * s, v.n[0] * s, v.n[1] * s, 0, 0);
+        ctx.fillStyle = '#6a737c';
+        for (const sg of [-1, 1]) {
+          ctx.beginPath(); ctx.moveTo(sg * (r + 0.0006), 0); ctx.lineTo(sg * (r + 0.0026), 0); ctx.lineTo(sg * (r + 0.0026), 0.0032);
+          ctx.lineTo(sg * (r - 0.0019), 0.0032); ctx.closePath(); ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+
+    // Looking down the bore: each column of the side view, averaged over its height,
+    // spread across the slice (planar) or around the axis (axisymmetric).
+    drawTop() {
+      const sim = this.sim, g = sim.g, p = sim.p, cv = this.topCv, ctx = this.topCtx;
+      const wrap = cv.parentElement;
+      const size = Math.max(200, Math.min(wrap.clientWidth - 4, 360));
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      if (cv.width !== Math.round(size * dpr)) { cv.width = Math.round(size * dpr); cv.height = Math.round(size * dpr); cv.style.width = cv.style.height = `${size}px`; }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, size, size);
+      const R = g.R, sc = size / (2 * R + 0.03), cx = size / 2, cy = size / 2;
+      const X = x => cx + x * sc, Z = z => cy + z * sc;
+      // Ports outside the bore
+      const pin = this.portGas('in'), pex = this.portGas('ex');
+      const rgb = c => `rgb(${c.map(Math.round).join(',')})`;
+      // Column colours, volume weighted
+      const NZ = g.NZ, col = this.topCol && this.topCol.length === g.nr * 3 ? this.topCol : (this.topCol = new Float32Array(g.nr * 3));
+      for (let i = 0; i < g.nr; i++) {
+        let r = 0, gg = 0, b = 0, w = 0;
+        for (let j = 0; j < NZ; j++) {
+          const c = i * NZ + j;
+          if (!g.act[c]) continue;
+          const vv = sim.V[c];
+          r += vv * this.colL[c * 3]; gg += vv * this.colL[c * 3 + 1]; b += vv * this.colL[c * 3 + 2]; w += vv;
+        }
+        col[i * 3] = r / w; col[i * 3 + 1] = gg / w; col[i * 3 + 2] = b / w;
+      }
+      const n = Math.round(2 * R * sc * 0.5);
+      if (this.topOff.width !== n) { this.topOff.width = this.topOff.height = n; this.topImg = this.topOffCtx.createImageData(n, n); }
+      const d = this.topImg.data;
+      for (let yy = 0; yy < n; yy++) for (let xx = 0; xx < n; xx++) {
+        const x = ((xx + 0.5) / n * 2 - 1) * R, z = ((yy + 0.5) / n * 2 - 1) * R;
+        const o = (yy * n + xx) * 4;
+        if (x * x + z * z > R * R) { d[o + 3] = 0; continue; }
+        // Smooth across columns
+        const pos = g.planar ? x : Math.hypot(x, z);
+        const u = (pos - g.x0) / g.dr - 0.5;
+        let i0 = Math.floor(u), f = u - i0;
+        if (i0 < 0) { i0 = 0; f = 0; }
+        const i1 = Math.min(g.nr - 1, i0 + 1);
+        d[o] = lerp(col[i0 * 3], col[i1 * 3], f); d[o + 1] = lerp(col[i0 * 3 + 1], col[i1 * 3 + 1], f); d[o + 2] = lerp(col[i0 * 3 + 2], col[i1 * 3 + 2], f); d[o + 3] = 255;
+      }
+      this.topOffCtx.putImageData(this.topImg, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(this.topOff, X(-R), Z(-R), 2 * R * sc, 2 * R * sc);
+      // Liner
+      ctx.strokeStyle = '#59616a'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(cx, cy, R * sc + 2, 0, 2 * Math.PI); ctx.stroke();
+      // Valves: two intake, two exhaust (planar) or the rings of the axisymmetric model
+      const valve = (x, z, D, lift, lmax, c, port) => {
+        ctx.fillStyle = rgb(port); ctx.globalAlpha = 0.25 + 0.75 * clamp(lift / lmax, 0, 1);
+        ctx.beginPath(); ctx.arc(X(x), Z(z), D / 2 * sc, 0, 2 * Math.PI); ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = c; ctx.lineWidth = 2.5; ctx.stroke();
+        ctx.fillStyle = c; ctx.beginPath(); ctx.arc(X(x), Z(z), Math.max(2, 0.11 * D * sc), 0, 2 * Math.PI); ctx.fill();
+      };
+      const Di = p.ivDiam * g.B, De = p.evDiam * g.B;
+      if (g.planar) {
+        const zi = Math.min(0.55 * Di, Math.sqrt(Math.max(0, (R - Di / 2 - 0.002) ** 2 - g.inR ** 2)));
+        const ze = Math.min(0.55 * De, Math.sqrt(Math.max(0, (R - De / 2 - 0.002) ** 2 - g.exR ** 2)));
+        for (const sz of [-1, 1]) {
+          valve(g.inR, sz * zi, Di, sim.liftIn || 0, p.ivLift, '#8fa9c2', pin);
+          valve(g.exR, sz * ze, De, sim.liftEx || 0, p.evLift, '#c09284', pex);
+        }
+        // Where the side view cuts
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(X(-R), cy); ctx.lineTo(X(R), cy); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = '10px system-ui, sans-serif'; ctx.textAlign = 'left';
+        ctx.fillText('corte lateral', X(-R) + 4, cy - 4);
+      } else {
+        for (const [r, D, c, lift, lmax, port] of [[g.inR, Di * 0.45, '#8fa9c2', sim.liftIn || 0, p.ivLift, pin], [g.exR, De * 0.45, '#c09284', sim.liftEx || 0, p.evLift, pex]]) {
+          ctx.strokeStyle = rgb(port); ctx.globalAlpha = 0.3 + 0.7 * clamp(lift / lmax, 0, 1); ctx.lineWidth = D * sc;
+          ctx.beginPath(); ctx.arc(cx, cy, r * sc, 0, 2 * Math.PI); ctx.stroke(); ctx.globalAlpha = 1;
+          ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
+          for (const e of [-1, 1]) { ctx.beginPath(); ctx.arc(cx, cy, (r + e * D / 2) * sc, 0, 2 * Math.PI); ctx.stroke(); }
+          ctx.setLineDash([]);
+        }
+      }
+      // Tracers and droplets, spread across the slice / around the axis
+      const place = (x, zr) => {
+        if (g.planar) return [x, zr * Math.sqrt(Math.max(0, R * R - x * x)) * 0.98];
+        const a = zr * Math.PI; return [x * Math.cos(a), x * Math.sin(a)];
+      };
+      if (this.view.tracers && sim.tracers) {
+        for (const t of sim.tracers) {
+          const [x, z] = place(t.x, t.zr);
+          ctx.fillStyle = t.kind ? 'rgba(225,245,255,0.55)' : 'rgba(255,150,40,0.7)';
+          ctx.fillRect(X(x) - 1, Z(z) - 1, 2, 2);
+        }
+      }
+      if (this.view.drops && sim.parcels.length) {
+        ctx.fillStyle = 'rgba(240,248,255,0.9)';
+        for (const q of sim.parcels) {
+          const [x, z] = g.planar && p.injection === 'directa' ? [q.r, q.zr * Math.min(Math.sqrt(Math.max(0, R * R - q.r * q.r)), Math.abs(q.r - sim.injectorX()))] : place(q.r, q.zr);
+          ctx.beginPath(); ctx.arc(X(x), Z(z), clamp(q.d * 1e6 * 0.04, 0.7, 3), 0, 2 * Math.PI); ctx.fill();
+        }
+      }
+      // Spark plug and injector
+      const sx = g.planar ? sim.sparkX() : 0;
+      ctx.fillStyle = '#e8e2d0'; ctx.beginPath(); ctx.arc(X(sx), cy, 0.006 * sc, 0, 2 * Math.PI); ctx.fill();
+      ctx.fillStyle = '#c9ced3'; ctx.beginPath(); ctx.arc(X(sx), cy, 0.0025 * sc, 0, 2 * Math.PI); ctx.fill();
+      if (sim.sparking) { ctx.fillStyle = 'rgba(190,210,255,0.9)'; ctx.beginPath(); ctx.arc(X(sx), cy, 0.004 * sc, 0, 2 * Math.PI); ctx.fill(); }
+      if (p.injection === 'directa') { ctx.fillStyle = '#9fb0bf'; const ix = g.planar ? sim.injectorX() : 0.0028; ctx.beginPath(); ctx.arc(X(ix + 0.004), cy + 0.007 * sc, 0.003 * sc, 0, 2 * Math.PI); ctx.fill(); }
+      // Labels
+      ctx.fillStyle = '#c7ced4'; ctx.font = '600 11px system-ui, sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText(g.planar ? 'ADM' : 'ADM (anillo)', 4, 14);
+      ctx.textAlign = 'right'; ctx.fillText(g.planar ? 'ESC' : 'ESC (anillo)', size - 4, 14);
     }
 
     drawCrankInset() {
@@ -555,8 +762,8 @@ const PSUI = (() => {
       const qRef = Math.max(5e9, 0.6 * qMax);
       for (let c = 0; c < N; c++) {
         if (!g.act[c]) continue;
-        fieldColor(sim, this.view.field2, c, this.colL, c * 3, qRef);
-        fieldColor(sim, this.view.field, c, this.colR, c * 3, qRef);
+        fieldColor(sim, this.view.field, c, this.colL, c * 3, qRef);
+        if (this.view.split !== 'nada') fieldColor(sim, this.view.split, c, this.colR, c * 3, qRef);
         if (sim.mik[c] > 0.7 * sim.m[c] && sim.c[c] < 0.5 && sim.mF[c] > 1e-3 * sim.m[c]) {
           // end gas close to autoignition glows red
           const t = clamp((sim.mik[c] / sim.m[c] - 0.7) / 0.3, 0, 1);
@@ -604,7 +811,7 @@ const PSUI = (() => {
             cc2 = nearestInColumn(g, colC[x], jRow);
             if (cc2 < 0) { data[o + 3] = 0; continue; }
           }
-          const arr = x < half ? this.colL : this.colR;
+          const arr = this.view.split !== 'nada' && x >= half ? this.colR : this.colL;
           let i0 = colI[x], fx = colF[x];
           if (i0 < 0) { i0 = 0; fx = 0; }
           let rr = 0, gg = 0, bb = 0, ww = 0;
@@ -625,6 +832,7 @@ const PSUI = (() => {
       ctx.imageSmoothingEnabled = true;
       ctx.drawImage(this.off, this.X(-g.R), this.Y(yTop), 2 * g.R * s, (yBot - yTop) * s);
       // Divider between the two fields
+      if (this.view.split === 'nada') return;
       ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.setLineDash([3, 4]); ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(this.X(0), this.Y(yTop)); ctx.lineTo(this.X(0), this.Y(yBot)); ctx.stroke(); ctx.setLineDash([]);
     }
@@ -666,7 +874,7 @@ const PSUI = (() => {
     drawLegend() {
       this.legend.innerHTML = '';
       const sw = (col, label) => h('span', { class: 'sw' }, h('i', { style: `background:${col}` }), label);
-      const shown = [...new Set([this.view.field2, this.view.field])];
+      const shown = this.view.split === 'nada' ? [this.view.field] : [...new Set([this.view.field, this.view.split])];
       for (const key of shown) {
         if (key === 'composicion') {
           this.legend.append(h('div', { class: 'legend-row' }, h('strong', {}, 'Composición'),

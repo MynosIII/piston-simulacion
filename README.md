@@ -7,7 +7,9 @@ Es la hermana de [simulacion-motor](https://github.com/MynosIII/simulacion-motor
 ## Cómo se usa
 
 - Arriba elegís un caso guardado: techo a dos aguas, cúpula, cámara descentrada, sin squish, inyección directa, carga estratificada, golpe, mezcla pobre, carga parcial, axisimétrico, etanol y GNC.
-- El corte del cilindro muestra un campo en cada mitad: **composición** (mezcla azul, aire sin combustible azul oscuro, gases quemados grises, llama naranja, gotas blancas, película celeste), temperatura, vorticidad, velocidad, turbulencia, dosado o swirl.
+- La vista lateral muestra un campo en todo el corte, por defecto la composición. Con "Mitad derecha" podés poner otro campo en esa mitad para comparar. Los campos son: **composición** (mezcla azul, aire sin combustible azul oscuro, gases quemados grises, llama naranja, gotas blancas, película celeste), temperatura, vorticidad, velocidad, turbulencia, dosado o swirl.
+- La **vista desde arriba** muestra el cilindro mirado por el eje: las dos válvulas de admisión, las dos de escape, la bujía y cada columna del corte promediada en la altura.
+- La culata tiene sus **conductos de admisión y escape**, con el color del gas que contienen y rayas que avanzan con el caudal, y las válvulas se dibujan con su forma real (cara, asiento a 45°, vástago y guía), inclinadas según el techo.
 - Los **trazadores** son marcadores que siguen al gas con su dispersión turbulenta: celestes los que entraron en este ciclo y naranjas el gas residual. Muestran cómo se mezcla la carga.
 - Las flechas pueden mostrar la velocidad absoluta o la velocidad sin el movimiento que impone el pistón, que es donde se ven el tumble, el squish y los remolinos.
 - A la derecha están la presión, el diagrama p–V, el calor liberado con la fracción quemada y el estado del combustible (vapor, líquido, película, quemado), más los valores del instante y los resultados del último ciclo.

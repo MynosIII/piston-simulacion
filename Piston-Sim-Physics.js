@@ -478,7 +478,8 @@ class PSCylinder {
   tracerIn(c, kind, top) {
     const g = this.g, i = (c / g.NZ) | 0, j = c % g.NZ;
     const y = top ? this.yTop[j] + 0.15 * this.dz[j] * Math.random() : this.yTop[j] + this.dz[j] * Math.random();
-    return { x: g.rw[i] + g.dr * Math.random(), y, kind, px: NaN, py: NaN };
+    // zr places the marker across the slice (planar) or around the axis, for the top view.
+    return { x: g.rw[i] + g.dr * Math.random(), y, kind, zr: 2 * Math.random() - 1 };
   }
 
   velocityAt(x, y, c) {
@@ -990,6 +991,7 @@ class PSCylinder {
     const Lin = this.valveLift(pos, 360 - p.ivo, 540 + p.ivc, p.ivLift);
     const Lex = this.valveLift(pos, 180 - p.evo, 360 + p.evc, p.evLift);
     this.liftIn = Lin; this.liftEx = Lex;
+    this.mdotIn = 0; this.mdotEx = 0;          // through each valve, positive into the cylinder / out of it
     if (Lin <= 0 && Lex <= 0) return;
     const M = this.totalMass();
     let Tm = 0, Rm = 0, cpm = 0;
@@ -1013,11 +1015,13 @@ class PSCylinder {
         dm = Math.min(dm, limit(p.pIntake));
         const rhoIn = p.pIntake / (R * p.tIntake);
         const U = dm / dt / (rhoIn * A);
+        this.mdotIn = dm / dt;
         this.injectThroughValve(g.inCols, dm, U, true, YF, R, cp, f, vf);
       } else {
         // Backflow into the intake port.
         let dm = psOrifice(Cd, A, p0, Tm, Rm, gm, p.pIntake) * dt;
         dm = Math.min(dm, limit(p.pIntake));
+        this.mdotIn = -dm / dt;
         this.extractThroughValve(g.inCols, dm, this.intakeBuf);
       }
     }
@@ -1028,6 +1032,7 @@ class PSCylinder {
         let dm = psOrifice(Cd, A, p0, Tm, Rm, gm, p.pExhaust) * dt;
         dm = Math.min(dm, limit(p.pExhaust));
         const out = { m: 0, mF: 0, mP: 0, E: 0 };
+        this.mdotEx = dm / dt;
         this.extractThroughValve(g.exCols, dm, out);
         if (out.m > 0) {
           const er = this.exhaustRes, a = out.m / (out.m + 2e-4);
@@ -1046,6 +1051,7 @@ class PSCylinder {
         dm = Math.min(dm, limit(p.pExhaust));
         const U = dm / dt / (p.pExhaust / (R * er.T) * A);
         this.inflowKind = 0;
+        this.mdotEx = -dm / dt;
         this.spreadInflow(g.exCols, dm, er.YF, er.YP, er.T, cp, U, -1);
       }
     }
@@ -1172,7 +1178,7 @@ class PSCylinder {
       }
       d = Math.max(3e-6, d);
       const md = fuel.rhoL * Math.PI * d * d * d / 6;
-      this.parcels.push({ r, y, u, w, vt, d, T, n: pm / md, alive: true });
+      this.parcels.push({ r, y, u, w, vt, d, T, n: pm / md, alive: true, zr: 2 * Math.random() - 1 });
     }
   }
 
